@@ -300,6 +300,32 @@ describe('chatEvents', () => {
     )
   })
 
+  it('processes the final NDJSON record when the stream has no trailing newline', async () => {
+    const encoder = new TextEncoder()
+    const finalRecord = JSON.stringify({
+      model: 'm',
+      message: { role: 'assistant', content: 'the final words' },
+      done: true,
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(encoder.encode(finalRecord))
+              controller.close()
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/x-ndjson' } },
+        ),
+      ),
+    )
+    const events = await collect(chatEvents({ model: 'm', messages: [] }))
+    expect(events).toContainEqual({ type: 'text', text: 'the final words' })
+    expect(events.at(-1)?.type).toBe('finish')
+  })
+
   it('throws when the stream ends without a done chunk', async () => {
     vi.stubGlobal(
       'fetch',
