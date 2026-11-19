@@ -292,8 +292,15 @@ Approve this exact command once?`,
       if (!aborted) finalNode.parts.push({ type: 'error', message: errorMessage(error) })
       closeReasoning(finalNode.parts, Date.now())
       await save(finalNode)
-    } else {
-      throw error
+    } else if (chats.getChat(chat.id)) {
+      const aborted = controller.signal.aborted || isAbort(error)
+      const failure = newNode(chat, parentId, 'assistant', [])
+      failure.status = aborted ? 'aborted' : 'error'
+      failure.meta = { model }
+      if (!aborted) failure.parts.push({ type: 'error', message: errorMessage(error) })
+      await chats.addNode(failure)
+      finalNode = failure
+      await chats.updateChat(chat.id, { activeLeafId: failure.id, updatedAt: new Date() })
     }
   }
 
