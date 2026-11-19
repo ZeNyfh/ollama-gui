@@ -86,12 +86,12 @@ function privateAddress(hostname) {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '')
   if (host === 'localhost' || host.endsWith('.localhost') || host === '0.0.0.0' || host === '::' || host === '::1') return true
   if (isIP(host) === 4) {
-    const [a, b] = host.split('.').map(Number)
+    const [a, b, d] = host.split('.').map(Number)
     return a === 0 || a === 10 || a === 127 || a >= 224 ||
       (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && (b === 0 || b === 2 || b === 168)) ||
-      (a === 198 && (b === 18 || b === 19 || b === 51)) ||
-      (a === 203 && b === 0) || (a === 100 && b >= 64 && b <= 127)
+      (a === 192 && ((b === 0 && (d === 0 || d === 2)) || (b === 168) || (b === 88 && d === 99))) ||
+      (a === 198 && ((b === 18 || b === 19) || (b === 51 && d === 100)) ||
+      (a === 203 && b === 0 && d === 113) || (a === 100 && b >= 64 && b <= 127)
   }
   if (isIP(host) === 6) {
     return host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe8') ||
