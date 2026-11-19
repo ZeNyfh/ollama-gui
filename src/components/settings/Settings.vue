@@ -235,7 +235,7 @@ const origin = location.origin
           <button type="button" :disabled="agentBusy || !agentToken.trim()" class="bg-accent rounded-lg px-3 py-1.5 text-[12.5px] font-semibold text-white disabled:opacity-50" @click="connectAgent">
             {{ agentBusy ? 'Testing…' : 'Connect & test' }}
           </button>
-          <span class="text-text-muted min-w-0 break-all text-[11.5px]">{{ agentStatus }}</span>
+          <span class="text-text-muted">{{ agentStatus }}</span>
         </div>
         <Toggle
           v-model="agentEnabled"
