@@ -6,7 +6,8 @@
  * are staged, then consumed by a separate one-shot approval call from the UI.
  * Run as the logged-in user, never with sudo/root.
  */
-import { createServer } from 'node:http'
+import { createServer, request as httpRequest } from 'node:http'
+import { request as httpsRequest } from 'node:https'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { readFile, readdir, stat } from 'node:fs/promises'
@@ -105,6 +106,64 @@ async function publicHostname(hostname) {
     return addresses.length > 0 && addresses.every(({ address }) => !privateAddress(address))
   } catch { return false }
 }
+async function fetchPublicText(target) {
+  // Resolve once, reject the entire hostname if any answer is private, then pin the
+  // connection to a vetted address so a second DNS lookup cannot rebind to localhost.
+  const addresses = await lookup(target.hostname, { all: true, verbatim: true })
+  if (!addresses.length || addresses.some(({ address }) => privateAddress(address)))
+    throw new Error('Only public HTTP(S) destinations are allowed')
+  const selected = addresses[0]
+  const requestFn = target.protocol === 'https:' ? httpsRequest : httpRequest
+  return new Promise((resolve, reject) => {
+    const req = requestFn({
+      protocol: target.protocol,
+      hostname: target.hostname,
+      port: target.port || undefined,
+      path: target.pathname + target.search,
+      method: 'GET',
+      headers: { Accept: 'text/html,text/plain,application/json,application/xml' },
+      timeout: 15_000,
+      servername: target.hostname,
+      lookup: (_hostname, options, callback) => {
+        if (options?.all) callback(null, addresses)
+        else callback(null, selected.address, selected.family)
+      },
+    }, (res) => {
+      const status = res.statusCode || 0
+      if (status >= 300 && status < 400) {
+        res.resume()
+        reject(new Error('Redirects are not followed by the local webpage reader'))
+        return
+      }
+      if (status < 200 || status >= 300) {
+        res.resume()
+        reject(new Error('Web server returned HTTP ' + status))
+        return
+      }
+      const contentType = String(res.headers['content-type'] || '')
+      if (!contentType.includes('text/') && !contentType.includes('json') && !contentType.includes('xml')) {
+        res.resume()
+        reject(new Error('URL did not return readable text'))
+        return
+      }
+      const chunks = []
+      let size = 0
+      res.on('data', (chunk) => {
+        size += chunk.length
+        if (size > 100_000) req.destroy(new Error('Webpage exceeds the 100 KiB read limit'))
+        else chunks.push(chunk)
+      })
+      res.on('end', () => resolve({
+        status,
+        contentType,
+        content: Buffer.concat(chunks).toString('utf8'),
+      }))
+    })
+    req.on('timeout', () => req.destroy(new Error('Webpage request timed out')))
+    req.on('error', reject)
+    req.end()
+  })
+}
 async function handle(req, res) {
   const origin = req.headers.origin
   if (origin && localOrigin(origin)) {
@@ -200,12 +259,8 @@ async function handle(req, res) {
     try { target = new URL(input.url) } catch { return json(res, 400, { error: 'Invalid URL' }) }
     if (!['http:', 'https:'].includes(target.protocol) || target.username || target.password || !(await publicHostname(target.hostname)))
       return json(res, 400, { error: 'Only public HTTP(S) URLs are allowed' })
-    const response = await fetch(target, { redirect: 'error', signal: AbortSignal.timeout(15_000) })
-    const type = response.headers.get('content-type') || ''
-    if (!type.includes('text/') && !type.includes('json') && !type.includes('xml'))
-      return json(res, 415, { error: 'URL did not return readable text' })
-    const text = (await response.text()).slice(0, 100_000)
-    return json(res, 200, { url: target.href, contentType: type, content: text })
+    const page = await fetchPublicText(target)
+    return json(res, 200, { url: target.href, contentType: page.contentType, content: page.content })
   }
 
   return json(res, 404, { error: 'Not found' })
