@@ -8,7 +8,7 @@ export interface AgentResult {
   [key: string]: unknown
 }
 
-async function agentRequest<T>(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<T> {
+async function agentRequest<T>(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST', signal?: AbortSignal): Promise<T> {
   if (!agentToken.value.trim()) throw new Error('Set the local companion pairing token in Settings')
   let response: Response
   try {
@@ -16,9 +16,10 @@ async function agentRequest<T>(path: string, body?: unknown, method = body === u
       method,
       headers: { Authorization: `Bearer ${agentToken.value.trim()}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
       body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(30_000),
+      signal: signal ?? AbortSignal.timeout(30_000),
     })
-  } catch {
+  } catch (error) {
+    if (signal?.aborted) throw error
     throw new Error(`Cannot reach local companion at ${agentUrl.value}`)
   }
   const data = await response.json().catch(() => ({}))
@@ -32,5 +33,12 @@ export const webSearch = (query: string) => agentRequest<AgentResult>('/v1/web-s
 export const openUrl = (url: string) => agentRequest<AgentResult>('/v1/open-url', { url })
 export const stageShell = (command: string, cwd?: string) =>
   agentRequest<{ id: string; command: string; cwd: string; warning: string }>('/v1/actions', { tool: 'shell', command, cwd })
-export const approveShell = (id: string) => agentRequest<AgentResult>(`/v1/actions/${encodeURIComponent(id)}/approve`, {})
+export async function approveShell(id: string, signal?: AbortSignal): Promise<AgentResult> {
+  try {
+    return await agentRequest<AgentResult>(`/v1/actions/${encodeURIComponent(id)}/approve`, {}, 'POST', signal)
+  } catch (error) {
+    if (signal?.aborted) await cancelShell(id).catch(() => {})
+    throw error
+  }
+}
 export const cancelShell = (id: string) => agentRequest<AgentResult>(`/v1/actions/${encodeURIComponent(id)}/cancel`, {})
