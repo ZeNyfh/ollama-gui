@@ -39,6 +39,6 @@ The Vue chat exposes four tools when **Enable model tools** is on: `web_search`,
 - Web search uses Brave Search and requires `BRAVE_SEARCH_API_KEY`.
 - Webpage reading accepts public HTTP(S) text responses, rejects redirects and private/reserved destinations, and pins the HTTP connection to the public address resolved for that request.
 - File inspection lists up to 500 directory entries or reads a text file up to 1 MiB. It is read-only.
-- Shell calls are staged first. The chat UI shows a browser confirmation with the exact command and working directory. Denial returns a structured result; approval consumes the request ID once and executes as the companion process user.
+- Shell calls are staged first. The chat UI shows an in-app confirmation dialog with the exact command and working directory. Denial returns a structured result; approval consumes the request ID once and executes as the companion process user.
 
 Run the companion tests with `npm run test:agent`. The companion is a trusted local process, not a sandbox. Enabling tools gives the model read access to arbitrary paths and the ability to propose arbitrary shell commands. Review every command before approving it; do not run the service as root.
