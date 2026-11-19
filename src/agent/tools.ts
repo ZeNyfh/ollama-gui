@@ -19,7 +19,7 @@ export const ASSISTANT_TOOLS = [
     type: 'function',
     function: {
       name: 'open_url',
-      description: 'Read the text content of a public HTTP or HTTPS webpage.',
+      description: 'Read the main readable text of a public HTTP or HTTPS webpage, stripping scripts, navigation, and other boilerplate.',
       parameters: {
         type: 'object',
         properties: {
