@@ -13,6 +13,11 @@ export interface WireMessage {
   tool_name?: string
 }
 
+export interface ChatTool {
+  type: 'function'
+  function: { name: string; description: string; parameters: Record<string, unknown> }
+}
+
 export interface ChatRequest {
   model: string
   messages: WireMessage[]
