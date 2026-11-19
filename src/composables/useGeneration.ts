@@ -254,10 +254,12 @@ async function generate(
         turn === 0
           ? firstHistory
           : activePath(chats.chatIndex(chat.id), currentParentId)
-      const node = newNode(chat, currentParentId, 'assistant', [])
+      // addNode returns the reactive proxy held by the chat cache. Mutate that proxy,
+      // not the raw object passed into addNode, otherwise Vue won't observe streamed
+      // token/reasoning updates until a reload reconstructs the node from IndexedDB.
+      const node = await chats.addNode(newNode(chat, currentParentId, 'assistant', []))
       node.status = 'streaming'
       node.meta = { model }
-      await chats.addNode(node)
       finalNode = node
       const slot = running.get(chat.id)
       if (slot) slot.nodeId = node.id
