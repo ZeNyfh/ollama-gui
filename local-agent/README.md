@@ -12,11 +12,7 @@ OLLAMA_GUI_AGENT_TOKEN="$(openssl rand -hex 32)" npm run agent
 
 The service prints the generated token if `OLLAMA_GUI_AGENT_TOKEN` is omitted. Keep it private. It listens on `127.0.0.1:3210` only. Run it as your normal desktop user, never with sudo.
 
-To enable web search, configure a Brave Search API key:
-
-```bash
-BRAVE_SEARCH_API_KEY="your-key" OLLAMA_GUI_AGENT_TOKEN="your-token" npm run agent
-```
+Web search uses DuckDuckGo's public HTML endpoint and requires no API key.
 
 ## API (v1)
 
@@ -24,7 +20,7 @@ Every request requires `Authorization: Bearer <token>`.
 
 - `GET /v1/health` — companion status.
 - `POST /v1/inspect` with `{"path":"/path"}` — inspect one directory or read a text file (up to 1 MiB).
-- `POST /v1/web-search` with `{"query":"..."}` — Brave web search.
+- `POST /v1/web-search` with `{"query":"..."}` — DuckDuckGo web search (no API key).
 - `POST /v1/open-url` with `{"url":"https://..."}` — fetch readable public text/JSON.
 - `POST /v1/actions` with `{"tool":"shell","command":"...","cwd":"/path"}` — stage a shell command. This does not execute it.
 - `POST /v1/actions/:id/approve` — consume the staged request and execute the exact command once.
@@ -36,7 +32,7 @@ The approval endpoint must only be called by a deliberate user interaction in th
 
 The Vue chat exposes four tools when **Enable model tools** is on: `web_search`, `open_url`, `inspect_path`, and `run_shell`. Ollama's native tool-call messages and `role=tool` replies are persisted in the chat history, and generation continues for up to eight tool rounds.
 
-- Web search uses Brave Search and requires `BRAVE_SEARCH_API_KEY`.
+- Web search uses DuckDuckGo and requires no API key.
 - Webpage reading accepts public HTTP(S) text responses, rejects redirects and private/reserved destinations, and pins the HTTP connection to the public address resolved for that request.
 - File inspection lists up to 500 directory entries or reads a text file up to 1 MiB. It is read-only.
 - Shell calls are staged first. The chat UI shows an in-app confirmation dialog with the exact command and working directory. Denial returns a structured result; approval consumes the request ID once and executes as the companion process user.
