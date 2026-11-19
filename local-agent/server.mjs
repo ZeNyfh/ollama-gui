@@ -63,9 +63,20 @@ function commandResult(command, cwd, signal) {
     const child = spawn(shell, ['-lc', command], {
       cwd: cwd || homedir(),
       env: { ...process.env, TERM: 'dumb' },
-      signal,
+      detached: process.platform !== 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
     })
+    const terminate = () => {
+      if (!child.pid) return
+      try {
+        if (process.platform === 'win32') child.kill('SIGTERM')
+        else process.kill(-child.pid, 'SIGTERM')
+      } catch {
+        child.kill('SIGTERM')
+      }
+    }
+    signal.addEventListener('abort', terminate, { once: true })
+    if (signal.aborted) terminate()
     let stdout = ''
     let stderr = ''
     let truncated = false
@@ -79,7 +90,7 @@ function commandResult(command, cwd, signal) {
     child.stdout.on('data', (c) => collect((s) => { stdout += s }, c))
     child.stderr.on('data', (c) => collect((s) => { stderr += s }, c))
     child.once('error', (error) => resolve({ stdout, stderr: error.message, exitCode: null, truncated }))
-    child.once('close', (code, signalName) => resolve({ stdout, stderr, exitCode: code, signal: signalName, truncated }))
+    child.once('close', (code, signalName) => {\n      signal.removeEventListener('abort', terminate)\n      resolve({ stdout, stderr, exitCode: code, signal: signalName, truncated })\n    })
   })
 }
 function privateAddress(hostname) {
@@ -218,6 +229,8 @@ async function handle(req, res) {
   if (req.method === 'POST' && approval) {
     const item = pending.get(approval[1])
     if (!item) return json(res, 404, { error: 'Approval request missing, expired or already consumed' })
+    if (Date.now() - item.createdAt > 5 * 60_000) {\n      pending.delete(item.id)\n      return json(res, 410, { error: 'Approval request expired. Ask the assistant to stage it again.' })\n    }
+    if (running.size >= 4) return json(res, 429, { error: 'Maximum of four concurrent shell processes reached' })
     pending.delete(item.id) // consume before any asynchronous work: approval cannot be replayed
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(new Error('Command timed out')), COMMAND_TIMEOUT)
