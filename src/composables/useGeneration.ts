@@ -11,7 +11,15 @@ import { useModels } from './useModels'
 import { usePresets } from './usePresets'
 import { autoTitle } from './useSettings'
 import { errorMessage, toast } from './useToasts'
-import { agentEnabled, approveShell, cancelShell, inspectPath, openUrl, stageShell, webSearch } from '../agent/client'
+import {
+  agentEnabled,
+  approveShell,
+  cancelShell,
+  inspectPath,
+  openUrl,
+  stageShell,
+  webSearch,
+} from '../agent/client'
 import { ASSISTANT_TOOLS } from '../agent/tools'
 
 const PERSIST_INTERVAL_MS = 500
@@ -152,7 +160,6 @@ async function generate(
   controller: AbortController,
 ) {
   const model = chat.model || chats.activeModel.value
-  let info: Awaited<ReturnType<typeof models.loadInfo>>
   const settings = resolveSettings(
     presets.globalPreset(),
     presets.modelPreset(model),
@@ -160,7 +167,10 @@ async function generate(
   )
   const toolPolicy = 'Local tool-use policy: you are an advisory assistant by default. Do not call web, filesystem, or shell tools unless the user explicitly asks you in their current message to perform that specific lookup, inspection, or operation. Do not treat requests for advice, explanations, plans, or recommendations as permission to act. Never execute or stage a shell command without the user explicitly asking for an operation; even then, wait for the separate exact-command approval prompt. If tool use would help but was not requested, explain what you could check and ask first.'
   const generationSettings = agentEnabled.value
-    ? { ...settings, systemPrompt: [settings.systemPrompt, toolPolicy].filter(Boolean).join('\n\n') }
+    ? {
+        ...settings,
+        systemPrompt: [settings.systemPrompt, toolPolicy].filter(Boolean).join('\n\n'),
+      }
     : settings
   let currentParentId = parentId
   let finalNode: MessageNode | null = null
@@ -169,14 +179,15 @@ async function generate(
     chats.getChat(chat.id) ? chats.saveNode(node) : Promise.resolve()
 
   try {
-    info = await models.loadInfo(model)
+    const info = await models.loadInfo(model)
     controller.signal.throwIfAborted()
     // A bounded agent loop prevents a model from endlessly calling tools.
     for (let turn = 0; turn < 8; turn++) {
       controller.signal.throwIfAborted()
-      const history = turn === 0
-        ? firstHistory
-        : activePath(chats.chatIndex(chat.id), currentParentId)
+      const history =
+        turn === 0
+          ? firstHistory
+          : activePath(chats.chatIndex(chat.id), currentParentId)
       const node = newNode(chat, currentParentId, 'assistant', [])
       node.status = 'streaming'
       node.meta = { model }
@@ -209,7 +220,9 @@ async function generate(
       closeReasoning(node.parts, Date.now())
       await save(node)
 
-      const calls = node.parts.filter((part): part is Extract<Part, { type: 'tool-call' }> => part.type === 'tool-call')
+      const calls = node.parts.filter(
+        (part): part is Extract<Part, { type: 'tool-call' }> => part.type === 'tool-call',
+      )
       if (!calls.length) break
       currentParentId = node.id
       for (const call of calls) {
@@ -217,8 +230,14 @@ async function generate(
         call.state = 'running'
         let result: unknown
         try {
-          if (!agentEnabled.value) throw new Error('Local assistant tools are disabled. Enable and connect the companion in Settings.')
-          const args = (call.args && typeof call.args === 'object' ? call.args : {}) as Record<string, unknown>
+          if (!agentEnabled.value) {
+            throw new Error(
+              'Local assistant tools are disabled. Enable and connect the companion in Settings.',
+            )
+          }
+          const args = (
+            call.args && typeof call.args === 'object' ? call.args : {}
+          ) as Record<string, unknown>
           switch (call.name) {
             case 'web_search':
               result = await webSearch(String(args.query ?? ''))
@@ -251,7 +270,10 @@ Approve this exact command once?`,
               if (!approved) {
                 await cancelShell(staged.id).catch(() => {})
                 call.state = 'denied'
-                result = { denied: true, message: 'The user denied this command. Do not retry unless the user asks.' }
+                result = {
+                  denied: true,
+                  message: 'The user denied this command. Do not retry unless the user asks.',
+                }
               } else {
                 call.state = 'running'
                 await save(node)
@@ -281,7 +303,10 @@ Approve this exact command once?`,
       }
       if (turn === 7) {
         const warning = newNode(chat, currentParentId, 'assistant', [
-          { type: 'error', message: 'Stopped after 8 tool rounds to prevent an unbounded tool loop.' },
+          {
+            type: 'error',
+            message: 'Stopped after 8 tool rounds to prevent an unbounded tool loop.',
+          },
         ])
         warning.status = 'error'
         await chats.addNode(warning)
@@ -310,7 +335,12 @@ Approve this exact command once?`,
   }
 
   const current = chats.getChat(chat.id)
-  if (finalNode?.status === 'done' && current && !current.titleGenerated && autoTitle.value) {
+  if (
+    finalNode?.status === 'done' &&
+    current &&
+    !current.titleGenerated &&
+    autoTitle.value
+  ) {
     const firstUser = firstHistory.find((n) => n.role === 'user')
     if (firstUser) void generateTitle(current, firstUser, finalNode)
   }
