@@ -28,7 +28,7 @@ export interface ToolCallPart {
   name: string
   args: unknown
   result?: unknown
-  state: 'running' | 'done' | 'error'
+  state: 'awaiting-approval' | 'running' | 'done' | 'denied' | 'error'
 }
 
 export interface ErrorPart {
