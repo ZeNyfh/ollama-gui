@@ -88,7 +88,6 @@ export async function* streamJson<T>(
       if (done) {
         // Ollama normally terminates each NDJSON record with a newline, but process
         // the final buffered record too when a proxy/server closes without one.
-        if (buffer.trim()) lines[lines.length - 1] = lines[lines.length - 1]
         buffer = ''
       } else {
         buffer = lines.pop() ?? ''
