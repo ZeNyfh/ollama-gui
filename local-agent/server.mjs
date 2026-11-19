@@ -284,11 +284,11 @@ async function handle(req, res) {
       .replace(/&#39;|&apos;/g, "'")
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
-      .replace(/&#(\\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
-      .replace(/&#x([\\da-f]+);/gi, (_, code) => String.fromCodePoint(parseInt(code, 16)))
-    const stripTags = (value) => decodeHtml(value.replace(/<[^>]*>/g, '')).replace(/\\s+/g, ' ').trim()
+      .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
+      .replace(/&#x([\da-f]+);/gi, (_, code) => String.fromCodePoint(parseInt(code, 16)))
+    const stripTags = (value) => decodeHtml(value.replace(/<[^>]*>/g, '')).replace(/\s+/g, ' ').trim()
     const results = []
-    const anchors = html.match(/<a\\b[^>]*class="[^"]*result__a[^"]*"[^>]*>[\\s\\S]*?<\\/a>/gi) || []
+    const anchors = html.match(/<a\b[^>]*class="[^"]*result__a[^"]*"[^>]*>[\s\S]*?<\/a>/gi) || []
     for (const anchor of anchors) {
       const href = anchor.match(/href="([^"]+)"/i)?.[1]
       if (!href) continue
@@ -296,13 +296,13 @@ async function handle(req, res) {
       try {
         const parsed = new URL(decodeHtml(href), 'https://duckduckgo.com')
         resultUrl = parsed.searchParams.get('uddg') || parsed.href
-        if (!/^https?:\\/\\//i.test(resultUrl)) continue
+        if (!/^https?:\/\//i.test(resultUrl)) continue
       } catch { continue }
       const title = stripTags(anchor)
       if (!title) continue
       const start = html.indexOf(anchor)
       const nearby = html.slice(start, start + 1800)
-      const snippetMatch = nearby.match(/<(?:a|div|td)[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\\s\\S]*?)<\\/(?:a|div|td)>/i)
+      const snippetMatch = nearby.match(/<(?:a|div|td)[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/(?:a|div|td)>/i)
       results.push({ title, url: resultUrl, description: snippetMatch ? stripTags(snippetMatch[1]) : '' })
       if (results.length === 8) break
     }
