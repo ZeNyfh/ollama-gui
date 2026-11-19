@@ -15,7 +15,11 @@ export interface WireMessage {
 
 export interface ChatTool {
   type: 'function'
-  function: { name: string; description: string; parameters: Record<string, unknown> }
+  function: {
+    name: string
+    description: string
+    parameters: Record<string, unknown>
+  }
 }
 
 export interface ChatRequest {
