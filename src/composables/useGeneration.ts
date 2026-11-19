@@ -251,7 +251,7 @@ Approve this exact command once?`,
               } else {
                 call.state = 'running'
                 await save(node)
-                result = await approveShell(staged.id)
+                result = await approveShell(staged.id, controller.signal)
                 call.state = 'done'
               }
               break
