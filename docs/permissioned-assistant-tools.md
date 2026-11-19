@@ -6,6 +6,8 @@ Turn Ollama GUI into a local general-purpose assistant. The model advises, inves
 
 ## Architecture
 
+Implementation status: the Vue app now has a native Ollama tool-call loop, local companion pairing settings, web search/page reading/file inspection tools, and a one-shot approval gate for shell execution. The loop is capped at eight tool rounds. Companion integration tests are in `local-agent/server.test.mjs`; run them with `npm run test:agent`. The broader catalogue below is a future direction, not a claim that every listed tool is already implemented.
+
 The current application is a browser-only Vue SPA. Keep Ollama communication in the browser, and add an optional local companion service for machine access. The companion is a separate process because browser JavaScript cannot safely or portably access a host shell or arbitrary filesystem paths.
 
 - Bind the companion to loopback only (127.0.0.1), never 0.0.0.0.
@@ -33,7 +35,7 @@ The current application is a browser-only Vue SPA. Keep Ollama communication in 
 - open_url(url): fetch readable page content; enforce HTTP(S), block loopback/private/link-local destinations and revalidate redirects to mitigate SSRF.
 - system_info(): OS, kernel, CPU, memory, disks and GPU information.
 - list_directory(path), read_file(path), search_files(root, query): read-only local inspection.
-- shell(command, cwd?): arbitrary user-shell command. Requires per-call approval, including commands that appear read-only; this gives one consistent and visible terminal audit trail.
+- run_shell(command, cwd?): arbitrary user-shell command. Requires per-call approval, including commands that appear read-only; this gives one consistent and visible terminal audit trail. File writes, edits, deletes, package operations and git mutations can be performed through shell commands, and therefore receive the same approval gate.
 - write_file(path, content), edit_file(path, patch), delete_file(path): require approval.
 - git_status(path), git_diff(path): read-only.
 - git_mutate(operation, args): checkout/reset/commit/push and other writes require approval.
@@ -55,10 +57,10 @@ Tool calls from untrusted/unsupported models must fail closed. Never infer appro
 
 ## UI
 
-- Settings > Tools: enable/disable individual tools, configure search provider and companion connection.
+- Settings > Local assistant tools: enable/disable the tool bundle, configure companion URL/token and test the connection. Search uses a Brave Search API key configured in the companion process.
 - Chat composer: show enabled tool capabilities.
 - Message tool cards: show tool, arguments, permission category, status, result and duration.
-- Approval panel: exact command/action, working directory, target files, risk summary, Approve once and Deny.
+- Shell approval: browser confirmation displays the exact command and working directory, with approve-once or deny. A dedicated in-chat approval panel and risk classification remain future UI improvements.
 - A global activity panel: pending approvals and running processes with Stop.
 - Clearly distinguish "proposed", "awaiting approval", "running", "completed", "denied", "failed" and "cancelled".
 
@@ -69,7 +71,7 @@ Tool calls from untrusted/unsupported models must fail closed. Never infer appro
 - Spawn the user's configured shell without eval'ing model output in the web page. Pass the command as a single argument to the shell; clearly explain that shell syntax still means arbitrary code execution.
 - Never silently elevate privileges. If sudo is needed, show the command and let the user decide in the terminal/approval flow; no password capture.
 - Do not automatically execute commands embedded in file contents, web pages, tool output or model-generated plans.
-- Web fetch must defend against SSRF, redirects to private IPs, DNS rebinding and oversized responses.
+- Web fetch must defend against SSRF, redirects to private IPs, DNS rebinding and oversized responses. Current implementation blocks private literals and hostnames resolving to private addresses, and rejects redirects; DNS pinning against rebinding is still a hardening task.
 - Bind approval to a one-time opaque request ID and consume it atomically.
 - Audit log should record tool name, timestamp, approval decision and exit status, but redact secrets and avoid storing full sensitive command output by default.
 - Add unit tests for permission checks, approval replay, argument tampering, origin/authentication, command timeout, cancellation, and tool-call continuation.
