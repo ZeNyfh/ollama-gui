@@ -10,7 +10,9 @@ import { useChats } from './useChats'
 import { useModels } from './useModels'
 import { usePresets } from './usePresets'
 import { autoTitle } from './useSettings'
-import { errorMessage, toast } from './useToasts'\nimport { agentEnabled, approveShell, cancelShell, inspectPath, openUrl, stageShell, webSearch } from '../agent/client'\nimport { ASSISTANT_TOOLS } from '../agent/tools'
+import { errorMessage, toast } from './useToasts'
+import { agentEnabled, approveShell, cancelShell, inspectPath, openUrl, stageShell, webSearch } from '../agent/client'
+import { ASSISTANT_TOOLS } from '../agent/tools'
 
 const PERSIST_INTERVAL_MS = 500
 
@@ -226,9 +228,19 @@ async function generate(
               const cwd = typeof args.cwd === 'string' ? args.cwd : undefined
               const staged = await stageShell(command, cwd)
               const approved = window.confirm(
-                'The assistant wants to run this command on your computer.\n\n' +
-                'COMMAND:\n' + staged.command + '\n\nWORKING DIRECTORY:\n' + staged.cwd +
-                '\n\nThis runs with your normal user permissions. It has not run yet.\n\nApprove this exact command once?',
+                'The assistant wants to run this command on your computer.
+
+' +
+                'COMMAND:
+' + staged.command + '
+
+WORKING DIRECTORY:
+' + staged.cwd +
+                '
+
+This runs with your normal user permissions. It has not run yet.
+
+Approve this exact command once?',
               )
               if (!approved) {
                 await cancelShell(staged.id).catch(() => {})
