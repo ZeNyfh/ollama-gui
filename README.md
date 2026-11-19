@@ -36,11 +36,7 @@ The optional local companion gives models access to read-only web and filesystem
 OLLAMA_GUI_AGENT_TOKEN="$(openssl rand -hex 32)" npm run agent
 ```
 
-Copy the pairing token printed by the companion into Settings and choose **Connect & test**. The companion listens only on `127.0.0.1:3210`. To enable web search, provide a Brave Search API key to the companion process:
-
-```bash
-BRAVE_SEARCH_API_KEY="your-key" OLLAMA_GUI_AGENT_TOKEN="your-token" npm run agent
-```
+Copy the pairing token printed by the companion into Settings and choose **Connect & test**. The companion listens only on `127.0.0.1:3210`. Web search uses DuckDuckGo and does not require an API key.
 
 When enabled, the model can search the public web, read public webpages, inspect local files/directories, and request shell commands. File inspection and web reads are read-only. **Every shell command is shown in a confirmation prompt with its exact command and working directory; it runs only after you approve that one request.** Commands run as the account that started the companion, with that account's normal permissions. There is no sandbox or path allowlist: this is intentionally full access to your user environment, so only enable it for a model/server you trust. Never run the companion as root. A model can read sensitive files when the tools are enabled; consider what your Ollama endpoint receives.
 
