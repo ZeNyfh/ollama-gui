@@ -11,6 +11,7 @@ import { useModels } from './useModels'
 import { usePresets } from './usePresets'
 import { autoTitle } from './useSettings'
 import { errorMessage, toast } from './useToasts'
+import { confirmAction } from './useConfirm'
 import {
   agentEnabled,
   approveShell,
@@ -254,19 +255,17 @@ async function generate(
               const staged = await stageShell(command, cwd)
               call.state = 'awaiting-approval'
               await save(node)
-              const approved = window.confirm(
-                `The assistant wants to run this command on your computer.
-
-COMMAND:
-${staged.command}
-
-WORKING DIRECTORY:
-${staged.cwd}
-
-This runs with your normal user permissions. It has not run yet.
-
-Approve this exact command once?`,
-              )
+              const approved = await confirmAction({
+                title: 'Run local shell command?',
+                message:
+                  'The assistant wants to run this command with your normal user permissions. It has not run yet.\n\n' +
+                  'COMMAND:\n' +
+                  staged.command +
+                  '\n\nWORKING DIRECTORY:\n' +
+                  staged.cwd,
+                confirmLabel: 'Approve once',
+                danger: true,
+              }))
               if (!approved) {
                 await cancelShell(staged.id).catch(() => {})
                 call.state = 'denied'
