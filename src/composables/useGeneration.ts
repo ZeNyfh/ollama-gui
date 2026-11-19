@@ -83,6 +83,13 @@ function newNode(
   }
 }
 
+/** Creates a readable initial chat title from the first user message. */
+function draftTitle(parts: Part[]): string {
+  const text = textOf(parts).replace(/\\s+/g, ' ').trim()
+  if (!text) return 'New chat'
+  return text.length > 48 ? text.slice(0, 45).trimEnd() + '…' : text
+}
+
 /** Sends a user message on the active chat, creating the chat for a draft. Returns false if busy. */
 async function send(parts: Part[]): Promise<boolean> {
   const model = chats.activeModel.value
