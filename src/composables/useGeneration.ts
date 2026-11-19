@@ -138,8 +138,8 @@ async function generateTitle(chat: Chat, user: MessageNode, reply: MessageNode) 
 export function cleanTitle(raw: string) {
   return (
     raw
-      .replace(/<think>[\s\S]*?<\\/think>/g, '')
-      .split('\\n')
+      .replace(/<think>[\s\S]*?<\/think>/g, '')
+      .split('\n')
       .map((line) => line.trim())
       .find(Boolean)
       ?.replace(/^[\"'*#\s]+|[\"'*.\s]+$/g, '')
