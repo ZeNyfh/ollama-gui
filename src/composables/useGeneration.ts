@@ -10,7 +10,7 @@ import { useChats } from './useChats'
 import { useModels } from './useModels'
 import { usePresets } from './usePresets'
 import { autoTitle } from './useSettings'
-import { errorMessage, toast } from './useToasts'\nimport { agentEnabled, approveShell, inspectPath, openUrl, stageShell, webSearch } from '../agent/client'\nimport { ASSISTANT_TOOLS } from '../agent/tools'
+import { errorMessage, toast } from './useToasts'\nimport { agentEnabled, approveShell, cancelShell, inspectPath, openUrl, stageShell, webSearch } from '../agent/client'\nimport { ASSISTANT_TOOLS } from '../agent/tools'
 
 const PERSIST_INTERVAL_MS = 500
 
@@ -159,7 +159,7 @@ async function generate(
   )
   let currentParentId = parentId
   let finalNode: MessageNode | null = null
-  let firstHistory = activePath(chats.chatIndex(chat.id), parentId)
+  const firstHistory = activePath(chats.chatIndex(chat.id), parentId)
   const save = (node: MessageNode) =>
     chats.getChat(chat.id) ? chats.saveNode(node) : Promise.resolve()
 
@@ -231,10 +231,7 @@ async function generate(
                 '\n\nThis runs with your normal user permissions. It has not run yet.\n\nApprove this exact command once?',
               )
               if (!approved) {
-                await fetch(`${(await import('../agent/client')).agentUrl.value.replace(/\\/+$/, '')}/v1/actions/${encodeURIComponent(staged.id)}/cancel`, {
-                  method: 'POST',
-                  headers: { Authorization: `Bearer ${(await import('../agent/client')).agentToken.value.trim()}` },
-                }).catch(() => {})
+                await cancelShell(staged.id).catch(() => {})
                 call.state = 'denied'
                 result = { denied: true, message: 'The user denied this command. Do not retry unless the user asks.' }
               } else {
