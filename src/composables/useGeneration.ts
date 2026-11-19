@@ -152,8 +152,7 @@ async function generate(
   controller: AbortController,
 ) {
   const model = chat.model || chats.activeModel.value
-  const info = await models.loadInfo(model)
-  controller.signal.throwIfAborted()
+  let info: Awaited<ReturnType<typeof models.loadInfo>>
   const settings = resolveSettings(
     presets.globalPreset(),
     presets.modelPreset(model),
@@ -166,6 +165,8 @@ async function generate(
     chats.getChat(chat.id) ? chats.saveNode(node) : Promise.resolve()
 
   try {
+    info = await models.loadInfo(model)
+    controller.signal.throwIfAborted()
     // A bounded agent loop prevents a model from endlessly calling tools.
     for (let turn = 0; turn < 8; turn++) {
       controller.signal.throwIfAborted()
@@ -227,6 +228,8 @@ async function generate(
               const command = String(args.command ?? '')
               const cwd = typeof args.cwd === 'string' ? args.cwd : undefined
               const staged = await stageShell(command, cwd)
+              call.state = 'awaiting-approval'
+              await save(node)
               const approved = window.confirm(
                 `The assistant wants to run this command on your computer.
 
@@ -245,6 +248,8 @@ Approve this exact command once?`,
                 call.state = 'denied'
                 result = { denied: true, message: 'The user denied this command. Do not retry unless the user asks.' }
               } else {
+                call.state = 'running'
+                await save(node)
                 result = await approveShell(staged.id)
                 call.state = 'done'
               }
@@ -255,12 +260,13 @@ Approve this exact command once?`,
           }
           if (call.state !== 'denied') call.state = 'done'
         } catch (error) {
+          if (controller.signal.aborted) throw error
           call.state = 'error'
           result = { error: errorMessage(error) }
         }
         call.result = result
         await save(node)
-        const toolNode = newNode(chat, node.id, 'tool', [
+        const toolNode = newNode(chat, currentParentId, 'tool', [
           { type: 'text', text: JSON.stringify(result, null, 2) },
         ])
         toolNode.toolName = call.name
