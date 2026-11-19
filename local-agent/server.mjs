@@ -15,6 +15,7 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
+import { extractReadableContent } from './content.mjs'
 
 const HOST = '127.0.0.1'
 const PORT = Number(process.env.OLLAMA_GUI_AGENT_PORT || 3210)
@@ -164,18 +165,34 @@ async function fetchPublicText(target) {
         reject(new Error('URL did not return readable text'))
         return
       }
+      const maxSourceBytes = 2 * 1024 * 1024
+      const declaredLength = Number(res.headers['content-length'] || 0)
+      if (declaredLength > maxSourceBytes) {
+        res.resume()
+        reject(new Error('Webpage source exceeds the 2 MiB safety limit'))
+        return
+      }
       const chunks = []
       let size = 0
       res.on('data', (chunk) => {
         size += chunk.length
-        if (size > 100_000) req.destroy(new Error('Webpage exceeds the 100 KiB read limit'))
-        else chunks.push(chunk)
+        if (size > maxSourceBytes) {
+          res.destroy(new Error('Webpage source exceeds the 2 MiB safety limit'))
+        } else {
+          chunks.push(chunk)
+        }
       })
-      res.on('end', () => resolve({
-        status,
-        contentType,
-        content: Buffer.concat(chunks).toString('utf8'),
-      }))
+      res.on('end', () => {
+        const extracted = extractReadableContent(Buffer.concat(chunks).toString('utf8'), contentType)
+        resolve({
+          status,
+          contentType,
+          content: extracted.content,
+          extracted: extracted.extracted,
+          truncated: extracted.truncated,
+          sourceBytes: size,
+        })
+      })
     })
     req.on('timeout', () => req.destroy(new Error('Webpage request timed out')))
     req.on('error', reject)
