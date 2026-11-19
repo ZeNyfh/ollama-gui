@@ -26,6 +26,7 @@ export interface ChatRequest {
   keep_alive?: string | number
   options?: Record<string, unknown>
   format?: string | object
+  tools?: ChatTool[]
 }
 
 export interface ChatChunk {
