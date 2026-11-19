@@ -106,6 +106,26 @@ test('shell commands are staged and can only be approved once', async () => {
   assert.equal(replay.status, 404)
 })
 
+test('a staged command can be cancelled without approval', async () => {
+  const stagedResponse = await request('/v1/actions', {
+    method: 'POST',
+    body: { tool: 'shell', command: 'printf must-not-run' },
+  })
+  const staged = await stagedResponse.json()
+  const cancelled = await request('/v1/actions/' + staged.id + '/cancel', {
+    method: 'POST',
+    body: {},
+  })
+  assert.equal(cancelled.status, 200)
+  assert.equal((await cancelled.json()).state, 'cancelled')
+
+  const replay = await request('/v1/actions/' + staged.id + '/approve', {
+    method: 'POST',
+    body: {},
+  })
+  assert.equal(replay.status, 404)
+})
+
 test('webpage reader rejects loopback targets before fetching', async () => {
   const response = await request('/v1/open-url', {
     method: 'POST',
