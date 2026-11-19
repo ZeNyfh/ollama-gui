@@ -115,7 +115,7 @@ function privateAddress(hostname) {
   return false
 }
 async function publicHostname(hostname) {
-  const host = hostname.replace(/^\\[|\\]$/g, '')
+  const host = hostname.replace(/^\[|\]$/g, '')
   if (privateAddress(host)) return false
   if (isIP(host)) return true
   try {
@@ -126,7 +126,7 @@ async function publicHostname(hostname) {
 async function fetchPublicText(target) {
   // Resolve once, reject the entire hostname if any answer is private, then pin the
   // connection to a vetted address so a second DNS lookup cannot rebind to localhost.
-  const hostname = target.hostname.replace(/^\\[|\\]$/g, '')
+  const hostname = target.hostname.replace(/^\[|\]$/g, '')
   const addresses = await lookup(hostname, { all: true, verbatim: true })
   if (!addresses.length || addresses.some(({ address }) => privateAddress(address)))
     throw new Error('Only public HTTP(S) destinations are allowed')
