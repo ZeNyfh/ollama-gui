@@ -55,6 +55,8 @@ export interface MessageNode {
   chatId: string
   parentId: string | null
   role: Role
+  /** Ollama function name when this is a role=tool response. */
+  toolName?: string
   parts: Part[]
   status: MessageStatus
   meta?: MessageMeta
