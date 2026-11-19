@@ -115,17 +115,19 @@ function privateAddress(hostname) {
   return false
 }
 async function publicHostname(hostname) {
-  if (privateAddress(hostname)) return false
-  if (isIP(hostname)) return true
+  const host = hostname.replace(/^\\[|\\]$/g, '')
+  if (privateAddress(host)) return false
+  if (isIP(host)) return true
   try {
-    const addresses = await lookup(hostname, { all: true, verbatim: true })
+    const addresses = await lookup(host, { all: true, verbatim: true })
     return addresses.length > 0 && addresses.every(({ address }) => !privateAddress(address))
   } catch { return false }
 }
 async function fetchPublicText(target) {
   // Resolve once, reject the entire hostname if any answer is private, then pin the
   // connection to a vetted address so a second DNS lookup cannot rebind to localhost.
-  const addresses = await lookup(target.hostname, { all: true, verbatim: true })
+  const hostname = target.hostname.replace(/^\\[|\\]$/g, '')
+  const addresses = await lookup(hostname, { all: true, verbatim: true })
   if (!addresses.length || addresses.some(({ address }) => privateAddress(address)))
     throw new Error('Only public HTTP(S) destinations are allowed')
   const selected = addresses[0]
@@ -133,13 +135,13 @@ async function fetchPublicText(target) {
   return new Promise((resolve, reject) => {
     const req = requestFn({
       protocol: target.protocol,
-      hostname: target.hostname,
+      hostname,
       port: target.port || undefined,
       path: target.pathname + target.search,
       method: 'GET',
       headers: { Accept: 'text/html,text/plain,application/json,application/xml' },
       timeout: 15_000,
-      servername: target.hostname,
+      servername: hostname,
       lookup: (_hostname, options, callback) => {
         if (options?.all) callback(null, addresses)
         else callback(null, selected.address, selected.family)
