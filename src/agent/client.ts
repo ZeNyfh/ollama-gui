@@ -8,13 +8,22 @@ export interface AgentResult {
   [key: string]: unknown
 }
 
-async function agentRequest<T>(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST', signal?: AbortSignal): Promise<T> {
-  if (!agentToken.value.trim()) throw new Error('Set the local companion pairing token in Settings')
+async function agentRequest<T>(
+  path: string,
+  body?: unknown,
+  method = body === undefined ? 'GET' : 'POST',
+  signal?: AbortSignal,
+): Promise<T> {
+  if (!agentToken.value.trim())
+    throw new Error('Set the local companion pairing token in Settings')
   let response: Response
   try {
     response = await fetch(`${agentUrl.value.replace(/\/+$/, '')}${path}`, {
       method,
-      headers: { Authorization: `Bearer ${agentToken.value.trim()}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+      headers: {
+        Authorization: `Bearer ${agentToken.value.trim()}`,
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: signal ?? AbortSignal.timeout(30_000),
     })
@@ -23,22 +32,58 @@ async function agentRequest<T>(path: string, body?: unknown, method = body === u
     throw new Error(`Cannot reach local companion at ${agentUrl.value}`)
   }
   const data = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(typeof data.error === 'string' ? data.error : `Local companion returned HTTP ${response.status}`)
+  if (!response.ok) {
+    throw new Error(
+      typeof data.error === 'string'
+        ? data.error
+        : `Local companion returned HTTP ${response.status}`,
+    )
+  }
   return data as T
 }
 
-export const testAgent = () => agentRequest<{ ok: boolean; version: number; platform: string; home: string }>('/v1/health')
-export const inspectPath = (path: string) => agentRequest<AgentResult>('/v1/inspect', { path })
-export const webSearch = (query: string) => agentRequest<AgentResult>('/v1/web-search', { query })
-export const openUrl = (url: string) => agentRequest<AgentResult>('/v1/open-url', { url })
+export const testAgent = () =>
+  agentRequest<{
+    ok: boolean
+    version: number
+    platform: string
+    home: string
+  }>('/v1/health')
+
+export const inspectPath = (path: string) =>
+  agentRequest<AgentResult>('/v1/inspect', { path })
+
+export const webSearch = (query: string) =>
+  agentRequest<AgentResult>('/v1/web-search', { query })
+
+export const openUrl = (url: string) =>
+  agentRequest<AgentResult>('/v1/open-url', { url })
+
 export const stageShell = (command: string, cwd?: string) =>
-  agentRequest<{ id: string; command: string; cwd: string; warning: string }>('/v1/actions', { tool: 'shell', command, cwd })
-export async function approveShell(id: string, signal?: AbortSignal): Promise<AgentResult> {
+  agentRequest<{ id: string; command: string; cwd: string; warning: string }>(
+    '/v1/actions',
+    { tool: 'shell', command, cwd },
+  )
+
+export async function approveShell(
+  id: string,
+  signal?: AbortSignal,
+): Promise<AgentResult> {
   try {
-    return await agentRequest<AgentResult>(`/v1/actions/${encodeURIComponent(id)}/approve`, {}, 'POST', signal)
+    return await agentRequest<AgentResult>(
+      `/v1/actions/${encodeURIComponent(id)}/approve`,
+      {},
+      'POST',
+      signal,
+    )
   } catch (error) {
     if (signal?.aborted) await cancelShell(id).catch(() => {})
     throw error
   }
 }
-export const cancelShell = (id: string) => agentRequest<AgentResult>(`/v1/actions/${encodeURIComponent(id)}/cancel`, {})
+
+export const cancelShell = (id: string) =>
+  agentRequest<AgentResult>(
+    `/v1/actions/${encodeURIComponent(id)}/cancel`,
+    {},
+  )
