@@ -11,6 +11,7 @@ export interface ChatInput {
   settings: GenerationSettings
   /** Only send `think` to models that report the thinking capability; others reject it. */
   supportsThinking: boolean
+  tools?: import('./types').ChatTool[]
 }
 
 export interface ChatStream {
@@ -33,6 +34,7 @@ export function buildChatRequest(input: ChatInput): ChatRequest {
   if (settings.keepAlive) request.keep_alive = settings.keepAlive
   if (settings.options && Object.keys(settings.options).length)
     request.options = { ...settings.options }
+  if (input.tools?.length) request.tools = input.tools
   return request
 }
 
@@ -57,6 +59,7 @@ function toWireMessage(node: MessageNode): WireMessage | null {
   const content = text.join('\n\n').trim()
   if (!content && !images.length && !toolCalls.length) return null
   const wire: WireMessage = { role: node.role, content }
+  if (node.role === 'tool') wire.tool_name = node.toolName
   if (images.length) wire.images = images
   if (toolCalls.length) wire.tool_calls = toolCalls
   return wire

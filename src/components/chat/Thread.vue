@@ -19,7 +19,9 @@ const content = ref<HTMLElement>()
 const pinned = ref(true)
 
 const visible = computed(() =>
-  chats.activeThread.value.filter((n) => showSystem.value || n.role !== 'system'),
+  chats.activeThread.value.filter(
+    (node) => node.role !== 'tool' && (showSystem.value || node.role !== 'system'),
+  ),
 )
 
 const systemPrompt = computed(() => {

@@ -12,7 +12,7 @@ import { pendingConfirm } from '../../composables/useConfirm'
   >
     <p
       v-if="pendingConfirm?.message"
-      class="text-text-secondary px-4 py-3 text-[13px] leading-relaxed"
+      class="text-text-secondary whitespace-pre-wrap break-words px-4 py-3 text-[13px] leading-relaxed"
     >
       {{ pendingConfirm.message }}
     </p>

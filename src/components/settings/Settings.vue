@@ -16,6 +16,7 @@ import {
   type Theme,
 } from '../../composables/useSettings'
 import { errorMessage, toast } from '../../composables/useToasts'
+import { agentEnabled, agentToken, agentUrl, testAgent } from '../../agent/client'
 import { downloadFile, exportAll, importData } from '../../composables/useTransfer'
 import { closeModal, modal } from '../../composables/useUi'
 import { relativeTime, resolveLocale } from '../../domain/format'
@@ -26,6 +27,22 @@ import CorsHelp from './CorsHelp.vue'
 const chats = useChats()
 const models = useModels()
 const open = computed(() => modal.value === 'settings')
+const agentStatus = ref('Not connected')
+const agentBusy = ref(false)
+async function connectAgent() {
+  agentBusy.value = true
+  try {
+    const info = await testAgent()
+    agentStatus.value = 'Connected · ' + info.platform + ' · ' + info.home
+    agentEnabled.value = true
+    toast('Local assistant connected', 'success')
+  } catch (error) {
+    agentStatus.value = errorMessage(error)
+    toast('Local assistant connection failed: ' + agentStatus.value, 'error')
+  } finally {
+    agentBusy.value = false
+  }
+}
 
 // Connection
 const urlDraft = ref(ollamaUrl.value)
@@ -205,108 +222,78 @@ const origin = location.origin
 
       <section class="space-y-3 p-4">
         <h3 class="text-text-muted text-[11px] font-semibold tracking-wide uppercase">
-          Appearance
+          Local assistant tools
         </h3>
-        <div class="flex items-center justify-between gap-4">
-          <span class="text-text text-[12.5px]">Theme</span>
-          <div
-            class="bg-list border-border flex gap-0.5 rounded-lg border p-0.5"
-            role="radiogroup"
-            aria-label="Theme"
-          >
-            <button
-              v-for="t in themes"
-              :key="t.value"
-              type="button"
-              role="radio"
-              :aria-checked="theme === t.value"
-              class="rounded-md px-3 py-1 text-[12px]"
-              :class="
-                theme === t.value
-                  ? 'bg-panel text-text font-semibold shadow-sm'
-                  : 'text-text-secondary'
-              "
-              :data-testid="`theme-${t.value}`"
-              @click="theme = t.value"
-            >
-              {{ t.label }}
-            </button>
-          </div>
-        </div>
-        <div>
-          <div class="flex items-center justify-between gap-4">
-            <label for="locale" class="text-text text-[12.5px]">
-              Regional format
-              <span class="text-text-muted block text-[11.5px]">
-                How dates, times and numbers are written
-              </span>
-            </label>
-            <select
-              id="locale"
-              v-model="localeChoice"
-              class="border-border bg-list text-text focus:border-accent max-w-[240px] rounded-lg border px-2 py-1 text-[12.5px] outline-none"
-              data-testid="locale-select"
-            >
-              <option value="">Same as system ({{ displayName(systemLocale) }})</option>
-              <option v-for="tag in LOCALES" :key="tag" :value="tag">
-                {{ displayName(tag) }}
-              </option>
-              <option value="custom">Other…</option>
-            </select>
-          </div>
-          <div
-            v-if="localeChoice === 'custom'"
-            class="mt-2 flex items-center justify-end gap-2"
-          >
-            <span v-if="customInvalid" class="text-red text-[11.5px]">
-              Not recognised, using system format
-            </span>
-            <input
-              v-model="customLocale"
-              placeholder="Language tag, e.g. en-IE"
-              class="border-border bg-list text-text focus:border-accent w-[180px] rounded-lg border px-2 py-1 text-[12.5px] outline-none"
-              aria-label="Language tag"
-            />
-          </div>
-          <p
-            class="bg-list text-text-secondary mt-2 rounded-md px-2.5 py-1.5 text-[12px] tabular-nums"
-            data-testid="locale-preview"
-          >
-            {{ preview }}
-          </p>
+        <p class="text-text-secondary text-[12px] leading-relaxed">
+          Connect the companion running on this computer to let models search the web, read local files and request shell commands. Read-only tools run when requested. Shell commands always show an approval prompt with the exact command and working directory before execution.
+        </p>
+        <label for="agent-url" class="text-text block text-[12.5px]">Companion URL</label>
+        <input id="agent-url" v-model="agentUrl" class="border-border bg-list text-text w-full rounded-lg border px-3 py-1.5 text-[12.5px]" />
+        <label for="agent-token" class="text-text block text-[12.5px]">Pairing token</label>
+        <input id="agent-token" v-model="agentToken" type="password" autocomplete="off" placeholder="Paste token printed by npm run agent" class="border-border bg-list text-text w-full rounded-lg border px-3 py-1.5 text-[12.5px]" />
+        <div class="flex items-center gap-2">
+          <button type="button" :disabled="agentBusy || !agentToken.trim()" class="bg-accent rounded-lg px-3 py-1.5 text-[12.5px] font-semibold text-white disabled:opacity-50" @click="connectAgent">
+            {{ agentBusy ? 'Testing…' : 'Connect & test' }}
+          </button>
+          <span class="text-text-muted">{{ agentStatus }}</span>
         </div>
         <Toggle
-          v-model="enableMarkdown"
-          label="Render Markdown"
-          description="Formatting, code highlighting and math in replies"
+          v-model="agentEnabled"
+          label="Enable model tools"
+          description="Expose web search, webpage reading, local file inspection and shell access to the model"
         />
-        <Toggle
-          v-model="showSystem"
-          label="Show system prompts"
-          description="Display the system prompt above the conversation"
-        />
+        <p class="text-text-muted text-[11px]">
+          The companion runs with your logged-in user permissions. Never run it with sudo. Web search requires BRAVE_SEARCH_API_KEY on the companion process.
+        </p>
       </section>
 
-      <section class="space-y-2 p-4">
+      <section class="space-y-3 p-4">
         <h3 class="text-text-muted text-[11px] font-semibold tracking-wide uppercase">
-          Chats
+          Local assistant tools
         </h3>
-        <Toggle
-          v-model="autoTitle"
-          label="Generate chat titles"
-          description="Ask the model for a short title after the first reply"
-        />
-        <label for="gravatar" class="text-text block pt-1 text-[12.5px]">
-          Gravatar email
-          <span class="text-text-muted">(optional avatar)</span>
-        </label>
+        <p class="text-text-secondary text-[12px] leading-relaxed">
+          Connect the companion running on this computer to let models search the web, read
+          local files and request shell commands. Read-only tools run when requested. Shell
+          commands always show an approval prompt with the exact command and working directory
+          before execution.
+        </p>
+        <label for="agent-url" class="text-text block text-[12.5px]">Companion URL</label>
         <input
-          id="gravatar"
-          v-model="gravatarEmail"
-          type="email"
-          class="border-border bg-list text-text focus:border-accent w-full rounded-lg border px-3 py-1.5 text-[12.5px] outline-none"
-          data-testid="input-gravatar"
+          id="agent-url"
+          v-model="agentUrl"
+          class="border-border bg-list text-text w-full rounded-lg border px-3 py-1.5 text-[12.5px]"
         />
+        <label for="agent-token" class="text-text block text-[12.5px]">Pairing token</label>
+        <input
+          id="agent-token"
+          v-model="agentToken"
+          type="password"
+          autocomplete="off"
+          placeholder="Paste token printed by npm run agent"
+          class="border-border bg-list text-text w-full rounded-lg border px-3 py-1.5 text-[12.5px]"
+        />
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            :disabled="agentBusy || !agentToken.trim()"
+            class="border-border hover:bg-hover rounded-lg border px-3 py-1.5 text-[12.5px]"
+            @click="connectAgent"
+          >
+            {{ agentBusy ? 'Testing…' : 'Connect & test' }}
+          </button>
+          <span class="text-text-muted min-w-0 break-all text-[11.5px]">
+            {{ agentStatus }}
+          </span>
+        </div>
+        <Toggle
+          v-model="agentEnabled"
+          label="Enable model tools"
+          description="Expose web search, webpage reading, local file inspection and shell access to the model"
+        />
+        <p class="text-text-muted text-[11px]">
+          The companion runs with your logged-in user permissions. Never run it with sudo. Web
+          search requires BRAVE_SEARCH_API_KEY on the companion process.
+        </p>
       </section>
 
       <section class="space-y-3 p-4">

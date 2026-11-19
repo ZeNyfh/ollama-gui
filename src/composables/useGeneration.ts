@@ -11,6 +11,17 @@ import { useModels } from './useModels'
 import { usePresets } from './usePresets'
 import { autoTitle } from './useSettings'
 import { errorMessage, toast } from './useToasts'
+import { confirmAction } from './useConfirm'
+import {
+  agentEnabled,
+  approveShell,
+  cancelShell,
+  inspectPath,
+  openUrl,
+  stageShell,
+  webSearch,
+} from '../agent/client'
+import { ASSISTANT_TOOLS } from '../agent/tools'
 
 const PERSIST_INTERVAL_MS = 500
 
@@ -150,124 +161,192 @@ async function generate(
   controller: AbortController,
 ) {
   const model = chat.model || chats.activeModel.value
-  const history = activePath(chats.chatIndex(chat.id), parentId)
-  const draft = newNode(chat, parentId, 'assistant', [])
-  draft.status = 'streaming'
-  draft.meta = { model }
-  const node = await chats.addNode(draft)
-  const slot = running.get(chat.id)
-  if (slot) slot.nodeId = node.id
-  await chats.updateChat(chat.id, { activeLeafId: node.id, updatedAt: new Date() })
+  const settings = resolveSettings(
+    presets.globalPreset(),
+    presets.modelPreset(model),
+    chat.settings,
+  )
+  const toolPolicy = 'Local tool-use policy: you are an advisory assistant by default. Do not call web, filesystem, or shell tools unless the user explicitly asks you in their current message to perform that specific lookup, inspection, or operation. Do not treat requests for advice, explanations, plans, or recommendations as permission to act. Never execute or stage a shell command without the user explicitly asking for an operation; even then, wait for the separate exact-command approval prompt. If tool use would help but was not requested, explain what you could check and ask first.'
+  const generationSettings = agentEnabled.value
+    ? {
+        ...settings,
+        systemPrompt: [settings.systemPrompt, toolPolicy].filter(Boolean).join('\n\n'),
+      }
+    : settings
+  let currentParentId = parentId
+  let finalNode: MessageNode | null = null
+  const firstHistory = activePath(chats.chatIndex(chat.id), parentId)
+  const save = (node: MessageNode) =>
+    chats.getChat(chat.id) ? chats.saveNode(node) : Promise.resolve()
 
-  // Skip writes once the chat is gone, so a late save can't resurrect deleted rows
-  const save = () => (chats.getChat(chat.id) ? chats.saveNode(node) : Promise.resolve())
-  let lastSave = Date.now()
   try {
     const info = await models.loadInfo(model)
     controller.signal.throwIfAborted()
-    const settings = resolveSettings(
-      presets.globalPreset(),
-      presets.modelPreset(model),
-      chat.settings,
-    )
-    const stream = startChat(
-      {
-        model,
-        history,
-        settings,
-        supportsThinking: info?.capabilities.includes('thinking') ?? false,
-      },
-      controller.signal,
-    )
-    for await (const event of stream.events) {
-      const meta = applyEvent(node.parts, event, Date.now())
-      if (meta) node.meta = { ...node.meta, ...meta }
-      if (Date.now() - lastSave > PERSIST_INTERVAL_MS) {
-        lastSave = Date.now()
-        void save()
+    // A bounded agent loop prevents a model from endlessly calling tools.
+    for (let turn = 0; turn < 8; turn++) {
+      controller.signal.throwIfAborted()
+      const history =
+        turn === 0
+          ? firstHistory
+          : activePath(chats.chatIndex(chat.id), currentParentId)
+      const node = newNode(chat, currentParentId, 'assistant', [])
+      node.status = 'streaming'
+      node.meta = { model }
+      await chats.addNode(node)
+      finalNode = node
+      const slot = running.get(chat.id)
+      if (slot) slot.nodeId = node.id
+      await chats.updateChat(chat.id, { activeLeafId: node.id, updatedAt: new Date() })
+
+      const stream = startChat(
+        {
+          model,
+          history,
+          settings: generationSettings,
+          supportsThinking: info?.capabilities.includes('thinking') ?? false,
+          tools: agentEnabled.value ? [...ASSISTANT_TOOLS] : undefined,
+        },
+        controller.signal,
+      )
+      let lastSave = Date.now()
+      for await (const event of stream.events) {
+        const meta = applyEvent(node.parts, event, Date.now())
+        if (meta) node.meta = { ...node.meta, ...meta }
+        if (Date.now() - lastSave > PERSIST_INTERVAL_MS) {
+          lastSave = Date.now()
+          void save(node)
+        }
+      }
+      node.status = 'done'
+      closeReasoning(node.parts, Date.now())
+      await save(node)
+
+      const calls = node.parts.filter(
+        (part): part is Extract<Part, { type: 'tool-call' }> => part.type === 'tool-call',
+      )
+      if (!calls.length) break
+      currentParentId = node.id
+      for (const call of calls) {
+        controller.signal.throwIfAborted()
+        call.state = 'running'
+        let result: unknown
+        try {
+          if (!agentEnabled.value) {
+            throw new Error(
+              'Local assistant tools are disabled. Enable and connect the companion in Settings.',
+            )
+          }
+          const args = (
+            call.args && typeof call.args === 'object' ? call.args : {}
+          ) as Record<string, unknown>
+          switch (call.name) {
+            case 'web_search':
+              result = await webSearch(String(args.query ?? ''), controller.signal)
+              break
+            case 'open_url':
+              result = await openUrl(String(args.url ?? ''), controller.signal)
+              break
+            case 'inspect_path':
+              result = await inspectPath(String(args.path ?? ''), controller.signal)
+              break
+            case 'run_shell': {
+              const command = String(args.command ?? '')
+              const cwd = typeof args.cwd === 'string' ? args.cwd : undefined
+              const staged = await stageShell(command, cwd, controller.signal)
+              call.state = 'awaiting-approval'
+              await save(node)
+              const approved = await confirmAction({
+                title: 'Run local shell command?',
+                message:
+                  'The assistant wants to run this command with your normal user permissions. It has not run yet.\n\n' +
+                  'COMMAND:\n' +
+                  staged.command +
+                  '\n\nWORKING DIRECTORY:\n' +
+                  staged.cwd,
+                confirmLabel: 'Approve once',
+                danger: true,
+              })
+              if (controller.signal.aborted) {
+                await cancelShell(staged.id).catch(() => {})
+                controller.signal.throwIfAborted()
+              }
+              if (!approved) {
+                await cancelShell(staged.id).catch(() => {})
+                call.state = 'denied'
+                result = {
+                  denied: true,
+                  message: 'The user denied this command. Do not retry unless the user asks.',
+                }
+              } else {
+                call.state = 'running'
+                await save(node)
+                result = await approveShell(staged.id, controller.signal)
+                call.state = 'done'
+              }
+              break
+            }
+            default:
+              throw new Error(`Unknown tool: ${call.name}`)
+          }
+          if (call.state !== 'denied') call.state = 'done'
+        } catch (error) {
+          if (controller.signal.aborted) throw error
+          call.state = 'error'
+          result = { error: errorMessage(error) }
+        }
+        controller.signal.throwIfAborted()
+        call.result = result
+        await save(node)
+        const toolNode = newNode(chat, currentParentId, 'tool', [
+          { type: 'text', text: JSON.stringify(result, null, 2) },
+        ])
+        toolNode.toolName = call.name
+        await chats.addNode(toolNode)
+        currentParentId = toolNode.id
+        await chats.updateChat(chat.id, { activeLeafId: toolNode.id, updatedAt: new Date() })
+      }
+      if (turn === 7) {
+        const warning = newNode(chat, currentParentId, 'assistant', [
+          {
+            type: 'error',
+            message: 'Stopped after 8 tool rounds to prevent an unbounded tool loop.',
+          },
+        ])
+        warning.status = 'error'
+        await chats.addNode(warning)
+        finalNode = warning
+        await chats.updateChat(chat.id, { activeLeafId: warning.id, updatedAt: new Date() })
+        break
       }
     }
-    node.status = 'done'
   } catch (error) {
-    const aborted = controller.signal.aborted || isAbort(error)
-    node.status = aborted ? 'aborted' : 'error'
-    if (!aborted) node.parts.push({ type: 'error', message: errorMessage(error) })
-  } finally {
-    closeReasoning(node.parts, Date.now())
-    await save()
+    if (finalNode) {
+      const aborted = controller.signal.aborted || isAbort(error)
+      finalNode.status = aborted ? 'aborted' : 'error'
+      if (!aborted) finalNode.parts.push({ type: 'error', message: errorMessage(error) })
+      closeReasoning(finalNode.parts, Date.now())
+      await save(finalNode)
+    } else if (chats.getChat(chat.id)) {
+      const aborted = controller.signal.aborted || isAbort(error)
+      const failure = newNode(chat, parentId, 'assistant', [])
+      failure.status = aborted ? 'aborted' : 'error'
+      failure.meta = { model }
+      if (!aborted) failure.parts.push({ type: 'error', message: errorMessage(error) })
+      await chats.addNode(failure)
+      finalNode = failure
+      await chats.updateChat(chat.id, { activeLeafId: failure.id, updatedAt: new Date() })
+    }
   }
 
   const current = chats.getChat(chat.id)
-  if (node.status === 'done' && current && !current.titleGenerated && autoTitle.value) {
-    const firstUser = history.find((n) => n.role === 'user')
-    if (firstUser) void generateTitle(current, firstUser, node)
+  if (
+    finalNode?.status === 'done' &&
+    current &&
+    !current.titleGenerated &&
+    autoTitle.value
+  ) {
+    const firstUser = firstHistory.find((n) => n.role === 'user')
+    if (firstUser) void generateTitle(current, firstUser, finalNode)
   }
 }
 
-function isAbort(error: unknown) {
-  return (
-    error instanceof DOMException &&
-    (error.name === 'AbortError' || error.name === 'TimeoutError')
-  )
-}
-
-function draftTitle(parts: Part[]) {
-  const text = textOf(parts).replace(/\s+/g, ' ').trim()
-  if (!text) return 'New chat'
-  return text.length > 48 ? `${text.slice(0, 47)}…` : text
-}
-
-const TITLE_PROMPT =
-  'Write a short title (3 to 6 words) for the conversation below. Reply with the title only: no quotes, no punctuation at the end.'
-
-/** Asks the chat's model for a short title. Leaves updatedAt alone so the chat doesn't jump. */
-async function generateTitle(chat: Chat, user: MessageNode, reply: MessageNode) {
-  const excerpt = (node: MessageNode) => textOf(node.parts).slice(0, 1500)
-  const info = models.info.get(chat.model)
-  const request = buildChatRequest({
-    model: chat.model,
-    history: [
-      {
-        ...user,
-        parts: [
-          {
-            type: 'text',
-            text: `${TITLE_PROMPT}\n\nUser: ${excerpt(user)}\n\nAssistant: ${excerpt(reply)}`,
-          },
-        ],
-      },
-    ],
-    settings: { think: false },
-    supportsThinking: info?.capabilities.includes('thinking') ?? false,
-  })
-  try {
-    const response = await requestJson<{ message?: { content?: string } }>('chat', {
-      method: 'POST',
-      body: { ...request, stream: false },
-    })
-    const title = cleanTitle(response.message?.content ?? '')
-    const current = chats.getChat(chat.id)
-    if (title && current && !current.titleGenerated) {
-      await chats.updateChat(chat.id, { title, titleGenerated: true })
-    }
-  } catch {
-    // keep the draft title
-  }
-}
-
-export function cleanTitle(raw: string) {
-  return (
-    raw
-      .replace(/<think>[\s\S]*?<\/think>/g, '')
-      .split('\n')
-      .map((l) => l.trim())
-      .find(Boolean)
-      ?.replace(/^["'*#\s]+|["'*.\s]+$/g, '')
-      .replace(/^title:\s*/i, '')
-      .slice(0, 60) ?? ''
-  )
-}
-
-export function useGeneration() {
-  return { running, isGenerating, stop, send, regenerate, edit }
-}

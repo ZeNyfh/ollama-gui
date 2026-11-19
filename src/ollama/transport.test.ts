@@ -105,6 +105,49 @@ describe('buildChatRequest', () => {
     expect(req.options).toEqual({ temperature: 0.2 })
   })
 
+  it('serializes assistant tool calls and their named tool responses', () => {
+    const assistant = node('assistant', [
+      { type: 'tool-call', name: 'web_search', args: { query: 'Ollama tools' }, state: 'done' },
+    ])
+    const response = node('tool', [{ type: 'text', text: '{"results":[]}' }])
+    response.toolName = 'web_search'
+    const tool = {
+      type: 'function' as const,
+      function: {
+        name: 'web_search',
+        description: 'Search the web',
+        parameters: { type: 'object', properties: { query: { type: 'string' } } },
+      },
+    }
+    const req = buildChatRequest({
+      model: 'qwen3',
+      history: [assistant, response],
+      settings: {},
+      supportsThinking: false,
+      tools: [tool],
+    })
+    expect(req.tools).toEqual([tool])
+    expect(req.messages).toEqual([
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [
+          {
+            function: {
+              name: 'web_search',
+              arguments: { query: 'Ollama tools' },
+            },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        content: '{"results":[]}',
+        tool_name: 'web_search',
+      },
+    ])
+  })
+
   it('sends think only to thinking-capable models', () => {
     const req = buildChatRequest({
       model: 'qwen3',

@@ -13,6 +13,15 @@ export interface WireMessage {
   tool_name?: string
 }
 
+export interface ChatTool {
+  type: 'function'
+  function: {
+    name: string
+    description: string
+    parameters: Record<string, unknown>
+  }
+}
+
 export interface ChatRequest {
   model: string
   messages: WireMessage[]
@@ -21,6 +30,7 @@ export interface ChatRequest {
   keep_alive?: string | number
   options?: Record<string, unknown>
   format?: string | object
+  tools?: ChatTool[]
 }
 
 export interface ChatChunk {

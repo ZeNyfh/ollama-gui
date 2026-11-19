@@ -27,6 +27,25 @@ Ollama GUI is a single-page app that talks directly to the Ollama API from your 
 - **Appearance:** light and dark themes; dates and numbers follow your locale or a format you pick.
 - **Import and export:** all chats as JSON, or a single chat as Markdown.
 
+## Local assistant tools
+
+The optional local companion gives models access to read-only web and filesystem tools, plus a general-purpose shell. Enable it in Settings → Local assistant tools after starting the companion:
+
+```bash
+# From the repository root; run as your normal desktop user, never with sudo
+OLLAMA_GUI_AGENT_TOKEN="$(openssl rand -hex 32)" npm run agent
+```
+
+Copy the pairing token printed by the companion into Settings and choose **Connect & test**. The companion listens only on `127.0.0.1:3210`. To enable web search, provide a Brave Search API key to the companion process:
+
+```bash
+BRAVE_SEARCH_API_KEY="your-key" OLLAMA_GUI_AGENT_TOKEN="your-token" npm run agent
+```
+
+When enabled, the model can search the public web, read public webpages, inspect local files/directories, and request shell commands. File inspection and web reads are read-only. **Every shell command is shown in a confirmation prompt with its exact command and working directory; it runs only after you approve that one request.** Commands run as the account that started the companion, with that account's normal permissions. There is no sandbox or path allowlist: this is intentionally full access to your user environment, so only enable it for a model/server you trust. Never run the companion as root. A model can read sensitive files when the tools are enabled; consider what your Ollama endpoint receives.
+
+The companion is separate from the hosted demo and is not automatically started by the browser app. The first implementation supports one companion process per local machine. The service tests can be run with `npm run test:agent`.
+
 ### Keyboard shortcuts
 
 | Shortcut | Action |

@@ -10,8 +10,10 @@ const result = computed(() =>
   props.part.result === undefined ? null : JSON.stringify(props.part.result, null, 2),
 )
 const stateClass = {
+  'awaiting-approval': 'text-orange',
   running: 'text-orange',
   done: 'text-green',
+  denied: 'text-text-muted',
   error: 'text-red',
 }
 </script>

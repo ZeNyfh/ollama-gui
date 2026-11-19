@@ -28,7 +28,7 @@ export interface ToolCallPart {
   name: string
   args: unknown
   result?: unknown
-  state: 'running' | 'done' | 'error'
+  state: 'awaiting-approval' | 'running' | 'done' | 'denied' | 'error'
 }
 
 export interface ErrorPart {
@@ -55,6 +55,8 @@ export interface MessageNode {
   chatId: string
   parentId: string | null
   role: Role
+  /** Ollama function name when this is a role=tool response. */
+  toolName?: string
   parts: Part[]
   status: MessageStatus
   meta?: MessageMeta
