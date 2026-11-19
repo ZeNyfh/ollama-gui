@@ -265,7 +265,11 @@ async function generate(
                   staged.cwd,
                 confirmLabel: 'Approve once',
                 danger: true,
-              }))
+              })
+              if (controller.signal.aborted) {
+                await cancelShell(staged.id).catch(() => {})
+                controller.signal.throwIfAborted()
+              }
               if (!approved) {
                 await cancelShell(staged.id).catch(() => {})
                 call.state = 'denied'
