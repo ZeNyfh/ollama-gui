@@ -90,7 +90,10 @@ function commandResult(command, cwd, signal) {
     child.stdout.on('data', (c) => collect((s) => { stdout += s }, c))
     child.stderr.on('data', (c) => collect((s) => { stderr += s }, c))
     child.once('error', (error) => resolve({ stdout, stderr: error.message, exitCode: null, truncated }))
-    child.once('close', (code, signalName) => {\n      signal.removeEventListener('abort', terminate)\n      resolve({ stdout, stderr, exitCode: code, signal: signalName, truncated })\n    })
+    child.once('close', (code, signalName) => {
+      signal.removeEventListener('abort', terminate)
+      resolve({ stdout, stderr, exitCode: code, signal: signalName, truncated })
+    })
   })
 }
 function privateAddress(hostname) {
@@ -229,7 +232,10 @@ async function handle(req, res) {
   if (req.method === 'POST' && approval) {
     const item = pending.get(approval[1])
     if (!item) return json(res, 404, { error: 'Approval request missing, expired or already consumed' })
-    if (Date.now() - item.createdAt > 5 * 60_000) {\n      pending.delete(item.id)\n      return json(res, 410, { error: 'Approval request expired. Ask the assistant to stage it again.' })\n    }
+    if (Date.now() - item.createdAt > 5 * 60_000) {
+      pending.delete(item.id)
+      return json(res, 410, { error: 'Approval request expired. Ask the assistant to stage it again.' })
+    }
     if (running.size >= 4) return json(res, 429, { error: 'Maximum of four concurrent shell processes reached' })
     pending.delete(item.id) // consume before any asynchronous work: approval cannot be replayed
     const controller = new AbortController()
