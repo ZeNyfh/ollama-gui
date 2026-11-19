@@ -12,6 +12,8 @@ import { spawn } from 'node:child_process'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
+import { lookup } from 'node:dns/promises'
+import { isIP } from 'node:net'
 
 const HOST = '127.0.0.1'
 const PORT = Number(process.env.OLLAMA_GUI_AGENT_PORT || 3210)
@@ -39,15 +41,19 @@ async function body(req) {
   }
   return raw ? JSON.parse(raw) : {}
 }
+function localOrigin(origin) {
+  if (!origin) return false
+  try {
+    const u = new URL(origin)
+    return ['http:', 'https:'].includes(u.protocol) &&
+      ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname)
+  } catch { return false }
+}
 function authorized(req) {
-  const auth = req.headers.authorization || ''
   const origin = req.headers.origin
   // Browser requests must originate from localhost. Non-browser CLI use has no Origin.
-  if (origin) {
-    let u
-    try { u = new URL(origin) } catch { return false }
-    if (!['localhost', '127.0.0.1'].includes(u.hostname) && u.hostname !== '[::1]') return false
-  }
+  if (origin && !localOrigin(origin)) return false
+  const auth = req.headers.authorization || ''
   return auth.startsWith('Bearer ') && safeEqual(auth.slice(7), TOKEN)
 }
 function commandResult(command, cwd, signal) {
@@ -76,11 +82,43 @@ function commandResult(command, cwd, signal) {
   })
 }
 function privateAddress(hostname) {
-  return hostname === 'localhost' || hostname.endsWith('.localhost') ||
-    /^(10\.|127\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(hostname) ||
-    hostname === '::1' || hostname.startsWith('fc') || hostname.startsWith('fd') || hostname.startsWith('fe80:')
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '')
+  if (host === 'localhost' || host.endsWith('.localhost') || host === '0.0.0.0' || host === '::' || host === '::1') return true
+  if (isIP(host) === 4) {
+    const [a, b] = host.split('.').map(Number)
+    return a === 0 || a === 10 || a === 127 || a >= 224 ||
+      (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127)
+  }
+  if (isIP(host) === 6) {
+    return host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe8') ||
+      host.startsWith('fe9') || host.startsWith('fea') || host.startsWith('feb') ||
+      host.startsWith('::ffff:')
+  }
+  return false
+}
+async function publicHostname(hostname) {
+  if (privateAddress(hostname)) return false
+  if (isIP(hostname)) return true
+  try {
+    const addresses = await lookup(hostname, { all: true, verbatim: true })
+    return addresses.length > 0 && addresses.every(({ address }) => !privateAddress(address))
+  } catch { return false }
 }
 async function handle(req, res) {
+  const origin = req.headers.origin
+  if (origin && localOrigin(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin)
+    res.setHeader('Vary', 'Origin')
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type')
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+    res.setHeader('Access-Control-Max-Age', '600')
+  }
+  if (req.method === 'OPTIONS') {
+    if (!localOrigin(origin)) return json(res, 403, { error: 'Browser origin is not allowed' })
+    res.writeHead(204)
+    return res.end()
+  }
   if (!authorized(req)) return json(res, 401, { error: 'Unauthorized. Configure the local companion token.' })
   const url = new URL(req.url || '/', 'http://127.0.0.1')
   if (req.method === 'GET' && url.pathname === '/v1/health')
@@ -107,6 +145,8 @@ async function handle(req, res) {
       return json(res, 400, { error: 'Expected tool=shell and a non-empty command' })
     if (input.command.length > 20_000) return json(res, 413, { error: 'Command too long' })
     const cwd = path.resolve(input.cwd || homedir())
+    for (const [key, value] of pending) if (Date.now() - value.createdAt > 5 * 60_000) pending.delete(key)
+    if (pending.size >= 100) return json(res, 429, { error: 'Too many pending approvals' })
     const id = randomBytes(18).toString('hex')
     const item = { id, tool: 'shell', command: input.command, cwd, createdAt: Date.now(), state: 'awaiting-approval' }
     pending.set(id, item)
@@ -158,7 +198,7 @@ async function handle(req, res) {
     const input = await body(req)
     let target
     try { target = new URL(input.url) } catch { return json(res, 400, { error: 'Invalid URL' }) }
-    if (!['http:', 'https:'].includes(target.protocol) || privateAddress(target.hostname))
+    if (!['http:', 'https:'].includes(target.protocol) || target.username || target.password || !(await publicHostname(target.hostname)))
       return json(res, 400, { error: 'Only public HTTP(S) URLs are allowed' })
     const response = await fetch(target, { redirect: 'error', signal: AbortSignal.timeout(15_000) })
     const type = response.headers.get('content-type') || ''
