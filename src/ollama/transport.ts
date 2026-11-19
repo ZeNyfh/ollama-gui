@@ -56,9 +56,7 @@ function toWireMessage(node: MessageNode): WireMessage | null {
       })
     }
   }
-  const content = text.join('
-
-').trim()
+  const content = text.join('\\n\\n').trim()
   if (!content && !images.length && !toolCalls.length) return null
   const wire: WireMessage = { role: node.role, content }
   if (node.role === 'tool') wire.tool_name = (node as MessageNode & { toolName?: string }).toolName
