@@ -50,19 +50,21 @@ export const testAgent = () =>
     home: string
   }>('/v1/health')
 
-export const inspectPath = (path: string) =>
-  agentRequest<AgentResult>('/v1/inspect', { path })
+export const inspectPath = (path: string, signal?: AbortSignal) =>
+  agentRequest<AgentResult>('/v1/inspect', { path }, 'POST', signal)
 
-export const webSearch = (query: string) =>
-  agentRequest<AgentResult>('/v1/web-search', { query })
+export const webSearch = (query: string, signal?: AbortSignal) =>
+  agentRequest<AgentResult>('/v1/web-search', { query }, 'POST', signal)
 
-export const openUrl = (url: string) =>
-  agentRequest<AgentResult>('/v1/open-url', { url })
+export const openUrl = (url: string, signal?: AbortSignal) =>
+  agentRequest<AgentResult>('/v1/open-url', { url }, 'POST', signal)
 
-export const stageShell = (command: string, cwd?: string) =>
+export const stageShell = (command: string, cwd?: string, signal?: AbortSignal) =>
   agentRequest<{ id: string; command: string; cwd: string; warning: string }>(
     '/v1/actions',
     { tool: 'shell', command, cwd },
+    'POST',
+    signal,
   )
 
 export async function approveShell(
