@@ -27,7 +27,12 @@ export function applyEvent(
       return
     case 'tool-call':
       closeReasoning(parts, now)
-      parts.push({ type: 'tool-call', name: event.name, args: event.args, state: 'awaiting-approval' })
+      parts.push({
+        type: 'tool-call',
+        name: event.name,
+        args: event.args,
+        state: 'awaiting-approval',
+      })
       return
     case 'finish':
       closeReasoning(parts, now)
