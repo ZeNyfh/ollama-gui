@@ -243,7 +243,7 @@ const origin = location.origin
           description="Expose web search, webpage reading, local file inspection and shell access to the model"
         />
         <p class="text-text-muted text-[11px]">
-          The companion runs with your logged-in user permissions. Never run it with sudo. Web search requires BRAVE_SEARCH_API_KEY on the companion process.
+          The companion runs with your logged-in user permissions. Never run it with sudo. Web search uses DuckDuckGo and does not require an API key.
         </p>
       </section>
 
