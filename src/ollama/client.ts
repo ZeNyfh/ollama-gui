@@ -85,7 +85,14 @@ export async function* streamJson<T>(
       const { done, value } = await reader.read()
       if (value) buffer += value
       const lines = buffer.split('\n')
-      buffer = done ? '' : (lines.pop() ?? '')
+      if (done) {
+        // Ollama normally terminates each NDJSON record with a newline, but process
+        // the final buffered record too when a proxy/server closes without one.
+        if (buffer.trim()) lines[lines.length - 1] = lines[lines.length - 1]
+        buffer = ''
+      } else {
+        buffer = lines.pop() ?? ''
+      }
       for (const line of lines) {
         if (!line.trim()) continue
         let data: T & { error?: string }
