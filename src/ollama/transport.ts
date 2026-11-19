@@ -66,10 +66,7 @@ function toWireMessage(node: MessageNode): WireMessage | null {
 }
 
 function fileAsText(part: Extract<Part, { type: 'file' }>): string {
-  return `File: ${part.name}
-\`\`\`
-${decodeBase64(part.data)}
-\`\`\``
+  return `File: ${part.name}\n\`\`\`\n${decodeBase64(part.data)}\n\`\`\``
 }
 
 export function decodeBase64(data: string): string {
