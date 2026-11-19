@@ -128,8 +128,23 @@ describe('buildChatRequest', () => {
     })
     expect(req.tools).toEqual([tool])
     expect(req.messages).toEqual([
-      { role: 'assistant', content: '', tool_calls: [{ function: { name: 'web_search', arguments: { query: 'Ollama tools' } } }] },
-      { role: 'tool', content: '{"results":[]}', tool_name: 'web_search' },
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [
+          {
+            function: {
+              name: 'web_search',
+              arguments: { query: 'Ollama tools' },
+            },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        content: '{"results":[]}',
+        tool_name: 'web_search',
+      },
     ])
   })
 
