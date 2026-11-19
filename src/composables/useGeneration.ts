@@ -228,20 +228,18 @@ async function generate(
               const cwd = typeof args.cwd === 'string' ? args.cwd : undefined
               const staged = await stageShell(command, cwd)
               const approved = window.confirm(
-                'The assistant wants to run this command on your computer.
+                `The assistant wants to run this command on your computer.
 
-' +
-                'COMMAND:
-' + staged.command + '
+COMMAND:
+${staged.command}
 
 WORKING DIRECTORY:
-' + staged.cwd +
-                '
+${staged.cwd}
 
 This runs with your normal user permissions. It has not run yet.
 
-Approve this exact command once?',
-              )
+Approve this exact command once?`,
+              ))
               if (!approved) {
                 await cancelShell(staged.id).catch(() => {})
                 call.state = 'denied'
