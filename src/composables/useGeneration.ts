@@ -241,18 +241,18 @@ async function generate(
           ) as Record<string, unknown>
           switch (call.name) {
             case 'web_search':
-              result = await webSearch(String(args.query ?? ''))
+              result = await webSearch(String(args.query ?? ''), controller.signal)
               break
             case 'open_url':
-              result = await openUrl(String(args.url ?? ''))
+              result = await openUrl(String(args.url ?? ''), controller.signal)
               break
             case 'inspect_path':
-              result = await inspectPath(String(args.path ?? ''))
+              result = await inspectPath(String(args.path ?? ''), controller.signal)
               break
             case 'run_shell': {
               const command = String(args.command ?? '')
               const cwd = typeof args.cwd === 'string' ? args.cwd : undefined
-              const staged = await stageShell(command, cwd)
+              const staged = await stageShell(command, cwd, controller.signal)
               call.state = 'awaiting-approval'
               await save(node)
               const approved = await confirmAction({
@@ -290,6 +290,7 @@ async function generate(
           call.state = 'error'
           result = { error: errorMessage(error) }
         }
+        controller.signal.throwIfAborted()
         call.result = result
         await save(node)
         const toolNode = newNode(chat, currentParentId, 'tool', [
