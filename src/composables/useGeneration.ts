@@ -350,3 +350,8 @@ async function generate(
   }
 }
 
+
+/** Public generation API consumed by the app and composer. */
+export function useGeneration() {
+  return { send, regenerate, edit, isGenerating, stop }
+}
