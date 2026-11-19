@@ -158,6 +158,10 @@ async function generate(
     presets.modelPreset(model),
     chat.settings,
   )
+  const toolPolicy = 'Local tool-use policy: you are an advisory assistant by default. Do not call web, filesystem, or shell tools unless the user explicitly asks you in their current message to perform that specific lookup, inspection, or operation. Do not treat requests for advice, explanations, plans, or recommendations as permission to act. Never execute or stage a shell command without the user explicitly asking for an operation; even then, wait for the separate exact-command approval prompt. If tool use would help but was not requested, explain what you could check and ask first.'
+  const generationSettings = agentEnabled.value
+    ? { ...settings, systemPrompt: [settings.systemPrompt, toolPolicy].filter(Boolean).join('\\n\\n') }
+    : settings
   let currentParentId = parentId
   let finalNode: MessageNode | null = null
   const firstHistory = activePath(chats.chatIndex(chat.id), parentId)
@@ -186,7 +190,7 @@ async function generate(
         {
           model,
           history,
-          settings,
+          settings: generationSettings,
           supportsThinking: info?.capabilities.includes('thinking') ?? false,
           tools: agentEnabled.value ? [...ASSISTANT_TOOLS] : undefined,
         },
