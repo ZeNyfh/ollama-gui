@@ -350,3 +350,71 @@ async function generate(
   }
 }
 
+
+function isAbort(error: unknown) {
+  return (
+    error instanceof DOMException &&
+    (error.name === 'AbortError' || error.name === 'TimeoutError')
+  )
+}
+
+function draftTitle(parts: Part[]) {
+  const text = textOf(parts).replace(/\s+/g, ' ').trim()
+  if (!text) return 'New chat'
+  return text.length > 48 ? `${text.slice(0, 47)}…` : text
+}
+
+const TITLE_PROMPT =
+  'Write a short title (3 to 6 words) for the conversation below. Reply with the title only: no quotes, no punctuation at the end.'
+
+/** Asks the chat's model for a short title. Leaves updatedAt alone so the chat doesn't jump. */
+async function generateTitle(chat: Chat, user: MessageNode, reply: MessageNode) {
+  const excerpt = (node: MessageNode) => textOf(node.parts).slice(0, 1500)
+  const info = models.info.get(chat.model)
+  const request = buildChatRequest({
+    model: chat.model,
+    history: [
+      {
+        ...user,
+        parts: [
+          {
+            type: 'text',
+            text: `${TITLE_PROMPT}\n\nUser: ${excerpt(user)}\n\nAssistant: ${excerpt(reply)}`,
+          },
+        ],
+      },
+    ],
+    settings: { think: false },
+    supportsThinking: info?.capabilities.includes('thinking') ?? false,
+  })
+  try {
+    const response = await requestJson<{ message?: { content?: string } }>('chat', {
+      method: 'POST',
+      body: { ...request, stream: false },
+    })
+    const title = cleanTitle(response.message?.content ?? '')
+    const current = chats.getChat(chat.id)
+    if (title && current && !current.titleGenerated) {
+      await chats.updateChat(chat.id, { title, titleGenerated: true })
+    }
+  } catch {
+    // keep the draft title
+  }
+}
+
+export function cleanTitle(raw: string) {
+  return (
+    raw
+      .replace(/<think>[\s\S]*?<\/think>/g, '')
+      .split('\n')
+      .map((l) => l.trim())
+      .find(Boolean)
+      ?.replace(/^["'*#\s]+|["'*.\s]+$/g, '')
+      .replace(/^title:\s*/i, '')
+      .slice(0, 60) ?? ''
+  )
+}
+
+export function useGeneration() {
+  return { running, isGenerating, stop, send, regenerate, edit }
+}
