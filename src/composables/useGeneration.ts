@@ -207,6 +207,7 @@ async function generate(
 
       const calls = node.parts.filter((part): part is Extract<Part, { type: 'tool-call' }> => part.type === 'tool-call')
       if (!calls.length) break
+      currentParentId = node.id
       for (const call of calls) {
         controller.signal.throwIfAborted()
         call.state = 'running'
@@ -242,7 +243,7 @@ ${staged.cwd}
 This runs with your normal user permissions. It has not run yet.
 
 Approve this exact command once?`,
-              ))
+              )
               if (!approved) {
                 await cancelShell(staged.id).catch(() => {})
                 call.state = 'denied'
