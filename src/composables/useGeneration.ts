@@ -83,6 +83,71 @@ function newNode(
   }
 }
 
+/** Creates a readable initial chat title from the first user message. */
+function draftTitle(parts: Part[]): string {
+  const text = textOf(parts).replace(/\s+/g, ' ').trim()
+  if (!text) return 'New chat'
+  return text.length > 48 ? text.slice(0, 45).trimEnd() + '…' : text
+}
+
+function isAbort(error: unknown) {
+  return (
+    error instanceof DOMException &&
+    (error.name === 'AbortError' || error.name === 'TimeoutError')
+  )
+}
+
+const TITLE_PROMPT =
+  'Write a short title (3 to 6 words) for the conversation below. Reply with the title only: no quotes, no punctuation at the end.'
+
+/** Asks the chat's model for a short title. Leaves updatedAt alone so the chat doesn't jump. */
+async function generateTitle(chat: Chat, user: MessageNode, reply: MessageNode) {
+  const excerpt = (node: MessageNode) => textOf(node.parts).slice(0, 1500)
+  const info = models.info.get(chat.model)
+  const request = buildChatRequest({
+    model: chat.model,
+    history: [
+      {
+        ...user,
+        parts: [
+          {
+            type: 'text',
+            text: `${TITLE_PROMPT}\n\nUser: ${excerpt(user)}\n\nAssistant: ${excerpt(reply)}`,
+          },
+        ],
+      },
+    ],
+    settings: { think: false },
+    supportsThinking: info?.capabilities.includes('thinking') ?? false,
+  })
+  try {
+    const response = await requestJson<{ message?: { content?: string } }>('chat', {
+      method: 'POST',
+      body: { ...request, stream: false },
+    })
+    const title = cleanTitle(response.message?.content ?? '')
+    const current = chats.getChat(chat.id)
+    if (title && current && !current.titleGenerated) {
+      await chats.updateChat(chat.id, { title, titleGenerated: true })
+    }
+  } catch {
+    // Keep the draft title if title generation fails.
+  }
+}
+
+export function cleanTitle(raw: string) {
+  return (
+    raw
+      .replace(/<think>[\s\S]*?<\/think>/g, '')
+      .split('\n')
+      .map((line) => line.trim())
+      .find(Boolean)
+      ?.replace(/^[\"'*#\s]+|[\"'*.\s]+$/g, '')
+      .replace(/^title:\s*/i, '')
+      .slice(0, 60) ?? ''
+  )
+}
+
 /** Sends a user message on the active chat, creating the chat for a draft. Returns false if busy. */
 async function send(parts: Part[]): Promise<boolean> {
   const model = chats.activeModel.value
@@ -189,10 +254,12 @@ async function generate(
         turn === 0
           ? firstHistory
           : activePath(chats.chatIndex(chat.id), currentParentId)
-      const node = newNode(chat, currentParentId, 'assistant', [])
+      // addNode returns the reactive proxy held by the chat cache. Mutate that proxy,
+      // not the raw object passed into addNode, otherwise Vue won't observe streamed
+      // token/reasoning updates until a reload reconstructs the node from IndexedDB.
+      const node = await chats.addNode(newNode(chat, currentParentId, 'assistant', []))
       node.status = 'streaming'
       node.meta = { model }
-      await chats.addNode(node)
       finalNode = node
       const slot = running.get(chat.id)
       if (slot) slot.nodeId = node.id
@@ -350,3 +417,8 @@ async function generate(
   }
 }
 
+
+/** Public generation API consumed by the app and composer. */
+export function useGeneration() {
+  return { send, regenerate, edit, isGenerating, stop }
+}

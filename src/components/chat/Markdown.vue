@@ -15,9 +15,16 @@ function render() {
 
 // While streaming, re-render at most once per animation frame instead of per token.
 watch(
-  () => [props.source, mathVersion.value] as const,
-  () => {
-    if (!props.streaming) return render()
+  () => [props.source, props.streaming, mathVersion.value] as const,
+  ([, streaming]) => {
+    // Always perform a final synchronous render when generation ends. While streaming,
+    // coalesce token updates to one render per animation frame.
+    if (!streaming) {
+      if (frame) cancelAnimationFrame(frame)
+      frame = 0
+      render()
+      return
+    }
     if (!frame) frame = requestAnimationFrame(render)
   },
   { immediate: true },
