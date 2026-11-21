@@ -9,7 +9,7 @@ import { buildChatRequest, startChat } from '../ollama/transport'
 import { useChats } from './useChats'
 import { useModels } from './useModels'
 import { usePresets } from './usePresets'
-import { autoTitle } from './useSettings'
+import { autoTitle, limitToolRounds } from './useSettings'
 import { errorMessage, toast } from './useToasts'
 import { confirmAction } from './useConfirm'
 import {
@@ -81,6 +81,71 @@ function newNode(
     status: 'done',
     createdAt: nextTimestamp(),
   }
+}
+
+/** Creates a readable initial chat title from the first user message. */
+function draftTitle(parts: Part[]): string {
+  const text = textOf(parts).replace(/\s+/g, ' ').trim()
+  if (!text) return 'New chat'
+  return text.length > 48 ? text.slice(0, 45).trimEnd() + '…' : text
+}
+
+function isAbort(error: unknown) {
+  return (
+    error instanceof DOMException &&
+    (error.name === 'AbortError' || error.name === 'TimeoutError')
+  )
+}
+
+const TITLE_PROMPT =
+  'Write a short title (3 to 6 words) for the conversation below. Reply with the title only: no quotes, no punctuation at the end.'
+
+/** Asks the chat's model for a short title. Leaves updatedAt alone so the chat doesn't jump. */
+async function generateTitle(chat: Chat, user: MessageNode, reply: MessageNode) {
+  const excerpt = (node: MessageNode) => textOf(node.parts).slice(0, 1500)
+  const info = models.info.get(chat.model)
+  const request = buildChatRequest({
+    model: chat.model,
+    history: [
+      {
+        ...user,
+        parts: [
+          {
+            type: 'text',
+            text: `${TITLE_PROMPT}\n\nUser: ${excerpt(user)}\n\nAssistant: ${excerpt(reply)}`,
+          },
+        ],
+      },
+    ],
+    settings: { think: false },
+    supportsThinking: info?.capabilities.includes('thinking') ?? false,
+  })
+  try {
+    const response = await requestJson<{ message?: { content?: string } }>('chat', {
+      method: 'POST',
+      body: { ...request, stream: false },
+    })
+    const title = cleanTitle(response.message?.content ?? '')
+    const current = chats.getChat(chat.id)
+    if (title && current && !current.titleGenerated) {
+      await chats.updateChat(chat.id, { title, titleGenerated: true })
+    }
+  } catch {
+    // Keep the draft title if title generation fails.
+  }
+}
+
+export function cleanTitle(raw: string) {
+  return (
+    raw
+      .replace(/<think>[\s\S]*?<\/think>/g, '')
+      .split('\n')
+      .map((line) => line.trim())
+      .find(Boolean)
+      ?.replace(/^[\"'*#\s]+|[\"'*.\s]+$/g, '')
+      .replace(/^title:\s*/i, '')
+      .slice(0, 60) ?? ''
+  )
 }
 
 /** Sends a user message on the active chat, creating the chat for a draft. Returns false if busy. */
@@ -175,6 +240,8 @@ async function generate(
     : settings
   let currentParentId = parentId
   let finalNode: MessageNode | null = null
+  let currentToolRound = 0
+  let completedToolCalls = 0
   const firstHistory = activePath(chats.chatIndex(chat.id), parentId)
   const save = (node: MessageNode) =>
     chats.getChat(chat.id) ? chats.saveNode(node) : Promise.resolve()
@@ -183,16 +250,19 @@ async function generate(
     const info = await models.loadInfo(model)
     controller.signal.throwIfAborted()
     // A bounded agent loop prevents a model from endlessly calling tools.
-    for (let turn = 0; turn < 8; turn++) {
+    for (let turn = 0; ; turn++) {
+      currentToolRound = turn + 1
       controller.signal.throwIfAborted()
       const history =
         turn === 0
           ? firstHistory
           : activePath(chats.chatIndex(chat.id), currentParentId)
-      const node = newNode(chat, currentParentId, 'assistant', [])
+      // addNode returns the reactive proxy held by the chat cache. Mutate that proxy,
+      // not the raw object passed into addNode, otherwise Vue won't observe streamed
+      // token/reasoning updates until a reload reconstructs the node from IndexedDB.
+      const node = await chats.addNode(newNode(chat, currentParentId, 'assistant', []))
       node.status = 'streaming'
       node.meta = { model }
-      await chats.addNode(node)
       finalNode = node
       const slot = running.get(chat.id)
       if (slot) slot.nodeId = node.id
@@ -297,6 +367,7 @@ async function generate(
         controller.signal.throwIfAborted()
         call.result = result
         await save(node)
+        completedToolCalls++
         const toolNode = newNode(chat, currentParentId, 'tool', [
           { type: 'text', text: JSON.stringify(result, null, 2) },
         ])
@@ -305,7 +376,7 @@ async function generate(
         currentParentId = toolNode.id
         await chats.updateChat(chat.id, { activeLeafId: toolNode.id, updatedAt: new Date() })
       }
-      if (turn === 7) {
+      if (limitToolRounds.value && turn >= 7) {
         const warning = newNode(chat, currentParentId, 'assistant', [
           {
             type: 'error',
@@ -323,7 +394,13 @@ async function generate(
     if (finalNode) {
       const aborted = controller.signal.aborted || isAbort(error)
       finalNode.status = aborted ? 'aborted' : 'error'
-      if (!aborted) finalNode.parts.push({ type: 'error', message: errorMessage(error) })
+      if (!aborted) {
+        const detail = errorMessage(error)
+        finalNode.parts.push({
+          type: 'error',
+          message: `Generation failed | model: ${model} | tool round: ${currentToolRound} | completed tool calls: ${completedToolCalls} | ${detail}`,
+        })
+      }
       closeReasoning(finalNode.parts, Date.now())
       await save(finalNode)
     } else if (chats.getChat(chat.id)) {
@@ -331,7 +408,13 @@ async function generate(
       const failure = newNode(chat, parentId, 'assistant', [])
       failure.status = aborted ? 'aborted' : 'error'
       failure.meta = { model }
-      if (!aborted) failure.parts.push({ type: 'error', message: errorMessage(error) })
+      if (!aborted) {
+        const detail = errorMessage(error)
+        failure.parts.push({
+          type: 'error',
+          message: `Generation failed | model: ${model} | tool round: ${currentToolRound} | completed tool calls: ${completedToolCalls} | ${detail}`,
+        })
+      }
       await chats.addNode(failure)
       finalNode = failure
       await chats.updateChat(chat.id, { activeLeafId: failure.id, updatedAt: new Date() })
@@ -350,3 +433,8 @@ async function generate(
   }
 }
 
+
+/** Public generation API consumed by the app and composer. */
+export function useGeneration() {
+  return { send, regenerate, edit, isGenerating, stop }
+}

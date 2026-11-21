@@ -24,6 +24,7 @@ export class OllamaError extends Error {
   constructor(
     message: string,
     readonly status?: number,
+    readonly cause?: unknown,
   ) {
     super(message)
     this.name = 'OllamaError'
@@ -47,15 +48,24 @@ async function send(path: string, { method = 'GET', body, signal }: RequestOptio
     })
   } catch (error) {
     if (signal?.aborted) throw error
-    throw new OllamaError(`Can't reach Ollama at ${resolveHost()}`)
+    const detail = error instanceof Error ? `: ${error.name}: ${error.message}` : ''
+    throw new OllamaError(`Can't reach Ollama at ${resolveHost()}${detail}`, undefined, error)
   }
   if (!response.ok) {
     let message = `${response.status} ${response.statusText}`.trim()
     try {
-      const data = await response.json()
-      if (typeof data?.error === 'string') message = data.error
+      const payload = await response.text()
+      if (payload) {
+        try {
+          const data = JSON.parse(payload)
+          if (typeof data?.error === 'string') message = data.error
+          else message += ` — ${payload.slice(0, 300)}`
+        } catch {
+          message += ` — ${payload.slice(0, 300)}`
+        }
+      }
     } catch {
-      // keep status text
+      // Keep the HTTP status if the error response itself cannot be read.
     }
     throw new OllamaError(message, response.status)
   }
@@ -82,17 +92,40 @@ export async function* streamJson<T>(
   let buffer = ''
   try {
     for (;;) {
-      const { done, value } = await reader.read()
+      let result: ReadableStreamReadResult<string>
+      try {
+        result = await reader.read()
+      } catch (error) {
+        if (signal?.aborted) throw error
+        const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+        throw new OllamaError(
+          `Ollama stream read failed (${path}): ${detail}`,
+          response.status,
+          error,
+        )
+      }
+      const { done, value } = result
       if (value) buffer += value
       const lines = buffer.split('\n')
-      buffer = done ? '' : (lines.pop() ?? '')
+      if (done) {
+        // Ollama normally terminates each NDJSON record with a newline, but process
+        // the final buffered record too when a proxy/server closes without one.
+        buffer = ''
+      } else {
+        buffer = lines.pop() ?? ''
+      }
       for (const line of lines) {
         if (!line.trim()) continue
         let data: T & { error?: string }
         try {
           data = JSON.parse(line)
-        } catch {
-          continue
+        } catch (error) {
+          const sample = line.slice(0, 160).replace(/\s+/g, ' ')
+          throw new OllamaError(
+            `Invalid NDJSON from Ollama (${path}): ${error instanceof Error ? error.message : 'JSON parse failed'}. Record starts: ${sample}`,
+            response.status,
+            error,
+          )
         }
         if (typeof data.error === 'string') throw new OllamaError(data.error)
         yield data as T

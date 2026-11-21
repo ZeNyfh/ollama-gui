@@ -10,6 +10,7 @@ import {
   enableMarkdown,
   gravatarEmail,
   locale,
+  limitToolRounds,
   ollamaUrl,
   showSystem,
   theme,
@@ -220,32 +221,6 @@ const origin = location.origin
         <CorsHelp v-if="models.connection.value === 'error'" />
       </section>
 
-      <section class="space-y-3 p-4">
-        <h3 class="text-text-muted text-[11px] font-semibold tracking-wide uppercase">
-          Local assistant tools
-        </h3>
-        <p class="text-text-secondary text-[12px] leading-relaxed">
-          Connect the companion running on this computer to let models search the web, read local files and request shell commands. Read-only tools run when requested. Shell commands always show an approval prompt with the exact command and working directory before execution.
-        </p>
-        <label for="agent-url" class="text-text block text-[12.5px]">Companion URL</label>
-        <input id="agent-url" v-model="agentUrl" class="border-border bg-list text-text w-full rounded-lg border px-3 py-1.5 text-[12.5px]" />
-        <label for="agent-token" class="text-text block text-[12.5px]">Pairing token</label>
-        <input id="agent-token" v-model="agentToken" type="password" autocomplete="off" placeholder="Paste token printed by npm run agent" class="border-border bg-list text-text w-full rounded-lg border px-3 py-1.5 text-[12.5px]" />
-        <div class="flex items-center gap-2">
-          <button type="button" :disabled="agentBusy || !agentToken.trim()" class="bg-accent rounded-lg px-3 py-1.5 text-[12.5px] font-semibold text-white disabled:opacity-50" @click="connectAgent">
-            {{ agentBusy ? 'Testing…' : 'Connect & test' }}
-          </button>
-          <span class="text-text-muted">{{ agentStatus }}</span>
-        </div>
-        <Toggle
-          v-model="agentEnabled"
-          label="Enable model tools"
-          description="Expose web search, webpage reading, local file inspection and shell access to the model"
-        />
-        <p class="text-text-muted text-[11px]">
-          The companion runs with your logged-in user permissions. Never run it with sudo. Web search requires BRAVE_SEARCH_API_KEY on the companion process.
-        </p>
-      </section>
 
       <section class="space-y-3 p-4">
         <h3 class="text-text-muted text-[11px] font-semibold tracking-wide uppercase">
@@ -289,6 +264,11 @@ const origin = location.origin
           v-model="agentEnabled"
           label="Enable model tools"
           description="Expose web search, webpage reading, local file inspection and shell access to the model"
+        />
+        <Toggle
+          v-model="limitToolRounds"
+          label="Limit tool rounds to 8"
+          description="Stop an agent run after eight rounds of tool calls. Turn this off to let the model continue until it finishes or you stop generation."
         />
         <p class="text-text-muted text-[11px]">
           The companion runs with your logged-in user permissions. Never run it with sudo. Web

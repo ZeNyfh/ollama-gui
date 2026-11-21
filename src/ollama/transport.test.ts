@@ -300,6 +300,32 @@ describe('chatEvents', () => {
     )
   })
 
+  it('processes the final NDJSON record when the stream has no trailing newline', async () => {
+    const encoder = new TextEncoder()
+    const finalRecord = JSON.stringify({
+      model: 'm',
+      message: { role: 'assistant', content: 'the final words' },
+      done: true,
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(encoder.encode(finalRecord))
+              controller.close()
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/x-ndjson' } },
+        ),
+      ),
+    )
+    const events = await collect(chatEvents({ model: 'm', messages: [] }))
+    expect(events).toContainEqual({ type: 'text', text: 'the final words' })
+    expect(events.at(-1)?.type).toBe('finish')
+  })
+
   it('throws when the stream ends without a done chunk', async () => {
     vi.stubGlobal(
       'fetch',
@@ -311,6 +337,36 @@ describe('chatEvents', () => {
     )
     await expect(collect(chatEvents({ model: 'm', messages: [] }))).rejects.toThrow(
       'ended unexpectedly',
+    )
+  })
+
+  it('reports malformed NDJSON instead of silently discarding it', async () => {
+    const encoder = new TextEncoder()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(encoder.encode('{not-json}\\n'), { status: 200 })),
+    )
+    await expect(collect(chatEvents({ model: 'm', messages: [] }))).rejects.toThrow(
+      'Invalid NDJSON from Ollama (chat)',
+    )
+  })
+
+  it('preserves the underlying stream reader error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.error(new TypeError('socket closed unexpectedly'))
+            },
+          }),
+          { status: 200 },
+        ),
+      ),
+    )
+    await expect(collect(chatEvents({ model: 'm', messages: [] }))).rejects.toThrow(
+      'Ollama stream read failed (chat): TypeError: socket closed unexpectedly',
     )
   })
 

@@ -15,6 +15,7 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
+import { extractReadableContent } from './content.mjs'
 
 const HOST = '127.0.0.1'
 const PORT = Number(process.env.OLLAMA_GUI_AGENT_PORT || 3210)
@@ -164,18 +165,34 @@ async function fetchPublicText(target) {
         reject(new Error('URL did not return readable text'))
         return
       }
+      const maxSourceBytes = 2 * 1024 * 1024
+      const declaredLength = Number(res.headers['content-length'] || 0)
+      if (declaredLength > maxSourceBytes) {
+        res.resume()
+        reject(new Error('Webpage source exceeds the 2 MiB safety limit'))
+        return
+      }
       const chunks = []
       let size = 0
       res.on('data', (chunk) => {
         size += chunk.length
-        if (size > 100_000) req.destroy(new Error('Webpage exceeds the 100 KiB read limit'))
-        else chunks.push(chunk)
+        if (size > maxSourceBytes) {
+          res.destroy(new Error('Webpage source exceeds the 2 MiB safety limit'))
+        } else {
+          chunks.push(chunk)
+        }
       })
-      res.on('end', () => resolve({
-        status,
-        contentType,
-        content: Buffer.concat(chunks).toString('utf8'),
-      }))
+      res.on('end', () => {
+        const extracted = extractReadableContent(Buffer.concat(chunks).toString('utf8'), contentType)
+        resolve({
+          status,
+          contentType,
+          content: extracted.content,
+          extracted: extracted.extracted,
+          truncated: extracted.truncated,
+          sourceBytes: size,
+        })
+      })
     })
     req.on('timeout', () => req.destroy(new Error('Webpage request timed out')))
     req.on('error', reject)
@@ -265,15 +282,48 @@ async function handle(req, res) {
 
   if (req.method === 'POST' && url.pathname === '/v1/web-search') {
     const input = await body(req)
-    const key = process.env.BRAVE_SEARCH_API_KEY
-    if (!key) return json(res, 501, { error: 'Configure BRAVE_SEARCH_API_KEY to enable web search.' })
-    if (typeof input.query !== 'string' || !input.query.trim()) return json(res, 400, { error: 'query is required' })
-    const response = await fetch('https://api.search.brave.com/res/v1/web/search?q=' + encodeURIComponent(input.query), {
-      headers: { 'X-Subscription-Token': key, Accept: 'application/json' },
+    if (typeof input.query !== 'string' || !input.query.trim())
+      return json(res, 400, { error: 'query is required' })
+
+    // DuckDuckGo's HTML endpoint is available without an API key.
+    const response = await fetch('https://html.duckduckgo.com/html/?q=' + encodeURIComponent(input.query), {
+      headers: {
+        Accept: 'text/html',
+        'User-Agent': 'Mozilla/5.0 (compatible; OllamaGUI/1.0)',
+      },
+      signal: AbortSignal.timeout(15_000),
     })
-    if (!response.ok) return json(res, 502, { error: 'Search provider returned ' + response.status })
-    const data = await response.json()
-    return json(res, 200, { results: (data.web?.results || []).slice(0, 8).map(({ title, url, description, age }) => ({ title, url, description, age })) })
+    if (!response.ok) return json(res, 502, { error: 'DuckDuckGo returned HTTP ' + response.status })
+    const html = await response.text()
+    const decodeHtml = (value) => value
+      .replace(/&amp;/g, '&')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;|&apos;/g, "'")
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
+      .replace(/&#x([\da-f]+);/gi, (_, code) => String.fromCodePoint(parseInt(code, 16)))
+    const stripTags = (value) => decodeHtml(value.replace(/<[^>]*>/g, '')).replace(/\s+/g, ' ').trim()
+    const results = []
+    const anchors = html.match(/<a\b[^>]*class="[^"]*result__a[^"]*"[^>]*>[\s\S]*?<\/a>/gi) || []
+    for (const anchor of anchors) {
+      const href = anchor.match(/href="([^"]+)"/i)?.[1]
+      if (!href) continue
+      let resultUrl
+      try {
+        const parsed = new URL(decodeHtml(href), 'https://duckduckgo.com')
+        resultUrl = parsed.searchParams.get('uddg') || parsed.href
+        if (!/^https?:\/\//i.test(resultUrl)) continue
+      } catch { continue }
+      const title = stripTags(anchor)
+      if (!title) continue
+      const start = html.indexOf(anchor)
+      const nearby = html.slice(start, start + 1800)
+      const snippetMatch = nearby.match(/<(?:a|div|td)[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/(?:a|div|td)>/i)
+      results.push({ title, url: resultUrl, description: snippetMatch ? stripTags(snippetMatch[1]) : '' })
+      if (results.length === 8) break
+    }
+    return json(res, 200, { results })
   }
 
   if (req.method === 'POST' && url.pathname === '/v1/open-url') {
