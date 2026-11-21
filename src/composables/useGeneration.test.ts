@@ -234,6 +234,10 @@ describe('generation edge cases', () => {
       message: expect.stringContaining('ended unexpectedly'),
     })
     expect(textOf(reply.parts)).toBe('cut')
+    expect(reply.parts.at(-1)).toMatchObject({
+      type: 'error',
+      message: expect.stringContaining('model: m | tool round: 1 | completed tool calls: 0'),
+    })
   })
 
   it('repairs replies left streaming by a reload', async () => {
