@@ -340,6 +340,36 @@ describe('chatEvents', () => {
     )
   })
 
+  it('reports malformed NDJSON instead of silently discarding it', async () => {
+    const encoder = new TextEncoder()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(encoder.encode('{not-json}\\n'), { status: 200 })),
+    )
+    await expect(collect(chatEvents({ model: 'm', messages: [] }))).rejects.toThrow(
+      'Invalid NDJSON from Ollama (chat)',
+    )
+  })
+
+  it('preserves the underlying stream reader error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.error(new TypeError('socket closed unexpectedly'))
+            },
+          }),
+          { status: 200 },
+        ),
+      ),
+    )
+    await expect(collect(chatEvents({ model: 'm', messages: [] }))).rejects.toThrow(
+      'Ollama stream read failed (chat): TypeError: socket closed unexpectedly',
+    )
+  })
+
   it('reports an unreachable server with the host', async () => {
     vi.stubGlobal(
       'fetch',
