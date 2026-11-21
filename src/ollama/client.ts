@@ -98,7 +98,11 @@ export async function* streamJson<T>(
       } catch (error) {
         if (signal?.aborted) throw error
         const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
-        throw new OllamaError(`Ollama stream read failed (${path}): ${detail}`, response.status, error)
+        throw new OllamaError(
+          `Ollama stream read failed (${path}): ${detail}`,
+          response.status,
+          error,
+        )
       }
       const { done, value } = result
       if (value) buffer += value
