@@ -240,6 +240,8 @@ async function generate(
     : settings
   let currentParentId = parentId
   let finalNode: MessageNode | null = null
+  let currentToolRound = 0
+  let completedToolCalls = 0
   const firstHistory = activePath(chats.chatIndex(chat.id), parentId)
   const save = (node: MessageNode) =>
     chats.getChat(chat.id) ? chats.saveNode(node) : Promise.resolve()
@@ -249,6 +251,7 @@ async function generate(
     controller.signal.throwIfAborted()
     // A bounded agent loop prevents a model from endlessly calling tools.
     for (let turn = 0; ; turn++) {
+      currentToolRound = turn + 1
       controller.signal.throwIfAborted()
       const history =
         turn === 0
@@ -364,6 +367,7 @@ async function generate(
         controller.signal.throwIfAborted()
         call.result = result
         await save(node)
+        completedToolCalls++
         const toolNode = newNode(chat, currentParentId, 'tool', [
           { type: 'text', text: JSON.stringify(result, null, 2) },
         ])
@@ -390,7 +394,13 @@ async function generate(
     if (finalNode) {
       const aborted = controller.signal.aborted || isAbort(error)
       finalNode.status = aborted ? 'aborted' : 'error'
-      if (!aborted) finalNode.parts.push({ type: 'error', message: errorMessage(error) })
+      if (!aborted) {
+        const detail = errorMessage(error)
+        finalNode.parts.push({
+          type: 'error',
+          message: `Generation failed | model: ${model} | tool round: ${currentToolRound} | completed tool calls: ${completedToolCalls} | ${detail}`,
+        })
+      }
       closeReasoning(finalNode.parts, Date.now())
       await save(finalNode)
     } else if (chats.getChat(chat.id)) {
@@ -398,7 +408,13 @@ async function generate(
       const failure = newNode(chat, parentId, 'assistant', [])
       failure.status = aborted ? 'aborted' : 'error'
       failure.meta = { model }
-      if (!aborted) failure.parts.push({ type: 'error', message: errorMessage(error) })
+      if (!aborted) {
+        const detail = errorMessage(error)
+        failure.parts.push({
+          type: 'error',
+          message: `Generation failed | model: ${model} | tool round: ${currentToolRound} | completed tool calls: ${completedToolCalls} | ${detail}`,
+        })
+      }
       await chats.addNode(failure)
       finalNode = failure
       await chats.updateChat(chat.id, { activeLeafId: failure.id, updatedAt: new Date() })
