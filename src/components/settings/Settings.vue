@@ -10,13 +10,14 @@ import {
   enableMarkdown,
   gravatarEmail,
   locale,
+  limitToolRounds,
   ollamaUrl,
   showSystem,
   theme,
   type Theme,
 } from '../../composables/useSettings'
 import { errorMessage, toast } from '../../composables/useToasts'
-import { agentEnabled, limitToolRounds, agentToken, agentUrl, testAgent } from '../../agent/client'
+import { agentEnabled, agentToken, agentUrl, testAgent } from '../../agent/client'
 import { downloadFile, exportAll, importData } from '../../composables/useTransfer'
 import { closeModal, modal } from '../../composables/useUi'
 import { relativeTime, resolveLocale } from '../../domain/format'
