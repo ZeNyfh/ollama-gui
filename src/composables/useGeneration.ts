@@ -9,7 +9,7 @@ import { buildChatRequest, startChat } from '../ollama/transport'
 import { useChats } from './useChats'
 import { useModels } from './useModels'
 import { usePresets } from './usePresets'
-import { autoTitle } from './useSettings'
+import { autoTitle, limitToolRounds } from './useSettings'
 import { errorMessage, toast } from './useToasts'
 import { confirmAction } from './useConfirm'
 import {
@@ -248,7 +248,7 @@ async function generate(
     const info = await models.loadInfo(model)
     controller.signal.throwIfAborted()
     // A bounded agent loop prevents a model from endlessly calling tools.
-    for (let turn = 0; turn < 8; turn++) {
+    for (let turn = 0; ; turn++) {
       controller.signal.throwIfAborted()
       const history =
         turn === 0
@@ -372,7 +372,7 @@ async function generate(
         currentParentId = toolNode.id
         await chats.updateChat(chat.id, { activeLeafId: toolNode.id, updatedAt: new Date() })
       }
-      if (turn === 7) {
+      if (limitToolRounds.value && turn >= 7) {
         const warning = newNode(chat, currentParentId, 'assistant', [
           {
             type: 'error',
